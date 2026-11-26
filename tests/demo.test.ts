@@ -37,7 +37,7 @@ function demoProject(): { proj: Proj; sprite: Proj['targets'][number] } {
 test('demo project has the phase-3 structural signature', () => {
   const { proj, sprite } = demoProject();
   assert.deepEqual(proj.extensions, ['pen']);
-  assert.equal(Object.keys(sprite.blocks).length, 6840);
+  assert.equal(Object.keys(sprite.blocks).length, 6882);
   assert.equal(Object.keys(sprite.variables).length, 355);
   assert.equal(Object.keys(sprite.lists).length, 102);
   const procs = Object.values(sprite.blocks)
