@@ -203,7 +203,7 @@ export function defineDynProcs(ctx: DynCtx): DynProcs {
     s.setVar('dCos', s.cos(v('oYaw'))), s.setVar('dSin', s.sin(v('oYaw'))),
     s.setVar('dExx', s.mul(v('dCos'), v('oHx'))), s.setVar('dExz', s.mul(s.mul(v('dSin'), -1), v('oHx'))),
     s.setVar('dEzx', s.mul(v('dSin'), v('oHz'))), s.setVar('dEzz', s.mul(v('dCos'), v('oHz'))),
-    s.penSetSize(2.4), s.setVar('quadMode', 2), s.setVar('cullFlag', 1),
+    s.penSetSize(2.4), s.setVar('quadMode', 2), s.setVar('cullFlag', 1), s.setVar('fillLOD', 0),
     ...face(nU, dotU, [[1, 1, 1], [1, 1, -1], [1, -1, -1], [1, -1, 1]]),
     ...face([s.mul(v('dCos'), -1), 0, v('dSin')], s.mul(dotU, -1), [[-1, 1, -1], [-1, 1, 1], [-1, -1, 1], [-1, -1, -1]]),
     ...face([0, 1, 0], sun[1], [[1, 1, 1], [-1, 1, 1], [-1, 1, -1], [1, 1, -1]]),

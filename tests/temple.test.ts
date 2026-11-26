@@ -6,6 +6,13 @@
  * 4,196 blocks, 232 variables, 76 lists, 15 warp procedures, and that
  * the baked scene data has the original quad counts. Full equivalence
  * against the original .sb3 is checked by tools/compare-temple.mjs.
+ *
+ * Phase 4 note: the optimization pass (reflection LOD: flat-shaded
+ * mirror arch/crystal + coarser mirror sky + 4px mirror fill step)
+ * intentionally changes the engine code, so the signature is now
+ * 4,250 blocks / 234 variables (added fillLOD + qStep registers);
+ * lists (76) and procedures (15) are unchanged. Behavioral equivalence
+ * is checked by the runtime pose-sweep harness (see phase-4 report).
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -40,8 +47,8 @@ test('temple project matches the original structural signature', () => {
   assert.deepEqual(proj.extensions, ['pen']);
   const sprite = proj.targets.find((t) => !t.isStage)!;
   const blockCount = Object.keys(sprite.blocks).length;
-  assert.equal(blockCount, 4196);
-  assert.equal(Object.keys(sprite.variables).length, 232);
+  assert.equal(blockCount, 4250);
+  assert.equal(Object.keys(sprite.variables).length, 234);
   assert.equal(Object.keys(sprite.lists).length, 76);
   const procs = Object.values(sprite.blocks).filter(
     (b) => (b as { opcode?: string }).opcode === 'procedures_prototype',
