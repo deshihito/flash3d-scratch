@@ -1,1 +1,19 @@
-{"description":"Flash — TS-based 3D engine for Scratch Pen with sb3 generation (based on the UE5 hybrid from scratch-ue5-pen-research)","devDependencies":{"@types/node":"^22.0.0","typescript":"^5.6.0"},"name":"flash3d-scratch","private":true,"scripts":{"build":"tsc -p tsconfig.json","gen:minimal":"npm run build && node dist/tests/fixtures/make-minimal.js","test":"npm run build && node --test dist/tests/builder.test.js && npm run verify:builder","verify:builder":"node tools/compare.mjs"},"type":"commonjs","version":"0.1.0"}
+{
+  "description": "Flash — TS-based 3D engine for Scratch Pen with sb3 generation (based on the UE5 hybrid from scratch-ue5-pen-research)",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  },
+  "name": "flash3d-scratch",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "gen:minimal": "npm run build && node dist/tests/fixtures/make-minimal.js",
+    "test": "npm run build && node --test dist/tests/builder.test.js dist/tests/temple.test.js && npm run verify:builder",
+    "verify:builder": "node tools/compare.mjs",
+    "build:temple": "npm run build && node dist/examples/temple/build.js",
+    "verify:temple": "node tools/compare-temple.mjs && node tools/validate.mjs dist/temple.sb3"
+  },
+  "type": "commonjs",
+  "version": "0.1.0"
+}

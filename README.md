@@ -4,12 +4,12 @@
 
 土台は研究レポ **[deshihito/scratch-ue5-pen-research](https://github.com/deshihito/scratch-ue5-pen-research)** の **UE5 hybrid**（`ue5_lumen_hybrid.sb3`）—「ベイク済みラスタライザ＋解析的レイトレのヒーローオブジェクト＋平面反射の二重描画パス」という描画配分で、品質と実用速度を両立させた実証作である。Flash はその方式を引き継ぎ、固定シーンのデモから「シーンを差し替えられるエンジン」へ汎用化する。画質は現行水準を維持し、主眼は**最適化**と**不足コンポーネントの補完**に置く。
 
-## 現在の状態: フェーズ0（ビルダー移植）
+## 現在の状態: フェーズ1（エンジンコア＋神殿シーン再現）
 
 | フェーズ | 内容 | 状態 |
 |---|---|---|
-| 0 | L0 sb3 ビルダー（`sb3_builder.py` の TS 移植）＋構造一致の検証 | ✅ 本レポの現行スコープ |
-| 1 | L1 エンジンコア汎用化＋神殿シーン再現（MVP） | 未着手 |
+| 0 | L0 sb3 ビルダー（`sb3_builder.py` の TS 移植）＋構造一致の検証 | ✅ 完了 |
+| 1 | L1 エンジンコア＋L2 シーン記述 API＋神殿シーン再現（MVP） | ✅ 完了（実機目視はユーザー確認待ち） |
 | 2–3 | 最適化（反射 LOD / RT 時間分割 / ペン色キャッシュ ほか） | 未着手 |
 | 4 | 不足コンポーネント補完（アニメーション、衝突、テクスチャ等） | 未着手 |
 
@@ -20,13 +20,35 @@ src/builder/        # L0: sb3 ビルダー（sb3_builder.py の TS 移植）
                     #   index.ts   Expr DSL、決定的 ID 採番、project.json 組立
                     #   pyjson.ts  Python json.dumps 互換シリアライザ
                     #   zip.ts     決定的 ZIP ライタ（固定タイムスタンプ）
+src/engine/         # L1: エンジンコア（デバイスコード = Scratch へ emit される汎用部品）
+                    #   hybrid-engine.ts  現行 hybrid の15プロシージャ＋メインループ
+src/scene/          # L2: シーン記述 API
+                    #   temple.ts           神殿シーンの宣言（SceneSpec）とビルド入口
+                    #   temple-constants.ts シーン定数（現行値の転記）
+src/bake/           # L2.5: ホスト側ベイク（temple-bake.ts: Lumen HDR 評価＋ACES）
+src/pycompat.ts     # Python 意味論ヘルパー（銀行丸め・剰余・range 等）
+examples/temple/    # 神殿シーンの sb3 生成 CLI（dist/temple.sb3 を出力）
 tests/
   fixtures/python/  # 移植元の正: sb3_builder.py（原典コピー）＋最小シーン生成
   fixtures/         # TS 側の最小シーン生成（Python 版と同一シーン）
   builder.test.ts   # 単体テスト（MD5・ID 規約・mutation 書式・決定性）
+  temple.test.ts    # 神殿シーンの構造シグネチャ（4196ブロック/232変数/76リスト/15 proc）
 tools/compare.mjs   # Python 版と TS 版の project.json 構造一致を機械比較
+tools/validate.mjs  # sb3 構造検証（validate_sb3.py の TS 移植＋拡張チェック）
+tools/compare-temple.mjs # 生成 temple.sb3 と原本 hybrid sb3 の等価性比較
 benchmarks/         # 研究レポから移した計測基準一式（詳細は benchmarks/README.md）
 ```
+
+### 神殿シーン（フェーズ1 MVP）
+
+現行 UE5 hybrid（`build_ue5_lumen_hybrid.py`）のデバイスコードとベイクを、境界規約（ホストコード vs デバイスコード）に従って L1/L2/L2.5 に分離移植したもの。数値はすべて現行値の転記で、新規の仕様・数値は導入していない。
+
+```bash
+npm run build:temple   # dist/temple.sb3 を生成（dist/ は .gitignore 済み）
+npm run verify:temple  # 原本 sb3 との比較＋構造検証（要: 研究レポと distilled の transpile.py）
+```
+
+検証結果（原本 `ue5_lumen_hybrid.sb3` との比較）: ブロック 4,196 = 4,196、変数 232 = 232、リスト 76 = 76（初期値すべて数値一致）、プロシージャ 15 = 15、opcode ヒストグラム完全一致。ブロック単位では 4,105 / 4,196 が JSON 完全一致し、残り 91 件は数値リテラルの表記差のみ（`1.0` vs `1`、`1e-05` vs `0.00001` — 下記「既知の移植上の差異」、数値として同一）。distilled の transpile.py を両 sb3 に当てた生成 TS は 8,982 / 8,994 行一致（差分12行はすべてリスト初期値の表記差）、`rt.unimplemented` は両側 0 件。構造検証（validate）は生成・原本とも 0 issues、拡張は `pen` のみ（純 Vanilla Scratch 3.0 で読み込み可能な形）。実機（TurboWarp / Scratch 公式）での起動・目視確認は未実施（ユーザー確認待ち）。
 
 レイヤ構成（L0 ビルダー / L1 エンジンコア / L2 シーン記述 API / L2.5 ベイク / L4 検証）と境界規約の全体設計は、設計書に従う（本レポには設計フェーズで順次反映する）。
 
