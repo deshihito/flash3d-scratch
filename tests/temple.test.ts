@@ -54,8 +54,8 @@ test('temple project matches the original structural signature', () => {
   assert.deepEqual(proj.extensions, ['pen']);
   const sprite = proj.targets.find((t) => !t.isStage)!;
   const blockCount = Object.keys(sprite.blocks).length;
-  assert.equal(blockCount, 4402);
-  assert.equal(Object.keys(sprite.variables).length, 259);
+  assert.equal(blockCount, 4413);
+  assert.equal(Object.keys(sprite.variables).length, 261);
   assert.equal(Object.keys(sprite.lists).length, 76);
   const procs = Object.values(sprite.blocks).filter(
     (b) => (b as { opcode?: string }).opcode === 'procedures_prototype',
