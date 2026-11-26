@@ -7,5 +7,7 @@
 import * as path from 'node:path';
 import { buildDemoSb3 } from '../../src/scene/demo';
 
-const out = buildDemoSb3(path.join(__dirname, '..', '..', 'demo.sb3'));
+// Debug stage monitors (impact readouts) are off in the shipped
+// build; FLASH_MONITORS=1 turns them on.
+const out = buildDemoSb3(path.join(__dirname, '..', '..', 'demo.sb3'), process.env.FLASH_MONITORS === '1');
 console.log(`Built: ${out}`);

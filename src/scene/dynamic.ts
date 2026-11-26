@@ -37,6 +37,14 @@ export interface DynObjectSpec {
   halfExtents?: Vec3;
   /** Runtime-shaded material: albedo in 0..1 per channel. */
   material: { albedo: Vec3 };
+  /**
+   * Metalness 0..1 for sphere shading (phase 6 look pass): 1 = the
+   * surface is shaded by tinted environment reflection (the RT hero
+   * spheres' recipe), 0 = diffuse body color with only a fresnel
+   * sheen of reflection on top. Default 1 (the demo spheres are
+   * metals: gold / copper). Ignored for boxes and cylinders.
+   */
+  metal?: number;
   /** Whether the player can push this object (default false). */
   pushable?: boolean;
   /** Cylinder fluting, forwarded to render_smooth_cylinder (default 0). */
@@ -114,6 +122,14 @@ export interface DynSceneSpec {
   playerRadius?: number;
   /** Physics / interaction parameters (phase 3). Defaults are provisional. */
   physics?: DynPhysicsSpec;
+  /**
+   * Show the debug stage monitors (evLastImpact / evLastObj / evVal,
+   * plus psRoom / agState when rooms / agents are present). Default
+   * false: shipped demo builds keep the stage clean (user feedback
+   * 2026-11-26 — the watchers covered the rendered scene). The
+   * example builders re-enable them with FLASH_MONITORS=1.
+   */
+  debugMonitors?: boolean;
 }
 
 /** Normalized per-object fields, as consumed by the device emitter. */
@@ -129,6 +145,8 @@ export interface DynObjectResolved {
   pushable: number;
   fluted: number;
   physical: number;
+  /** Metalness 0..1 (sphere shading; default 1). */
+  metal: number;
   /** 1-based room id (phase 5; 1 when no RoomsSpec is in play). */
   room: number;
 }
@@ -155,6 +173,7 @@ export function resolveDynObject(o: DynObjectSpec): DynObjectResolved {
     pushable: o.pushable ? 1 : 0,
     fluted: o.fluted ?? 0,
     physical: o.physical ? 1 : 0,
+    metal: Math.min(1, Math.max(0, o.metal ?? 1)),
     room: o.room ?? 1,
   };
 }

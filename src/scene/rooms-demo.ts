@@ -179,13 +179,13 @@ export const roomsAgents: AgentSpec[] = [
 ];
 
 /** Build the rooms demo's ProjectBuilder (temple + rooms + AI). */
-export function buildRoomsDemo(): ProjectBuilder {
-  return buildTempleProject(bakeCinemaScene(), roomsDynScene, roomsMapSpec, roomsAgents);
+export function buildRoomsDemo(debugMonitors = false): ProjectBuilder {
+  return buildTempleProject(bakeCinemaScene(), { ...roomsDynScene, debugMonitors }, roomsMapSpec, roomsAgents);
 }
 
 /** Build and save dist/rooms.sb3 (or a caller-provided path). Returns the output path. */
-export function buildRoomsSb3(outPath?: string): string {
-  const pb = buildRoomsDemo();
+export function buildRoomsSb3(outPath?: string, debugMonitors = false): string {
+  const pb = buildRoomsDemo(debugMonitors);
   const out = outPath ?? path.join(__dirname, '..', '..', '..', 'dist', 'rooms.sb3');
   return pb.saveSb3(out);
 }

@@ -56,8 +56,12 @@ test('rooms project has the phase-5 procedures and pen-only extensions', () => {
     if (b.next) assert.ok(ids.has(b.next), `dangling next ${b.next}`);
     if (b.parent) assert.ok(ids.has(b.parent), `dangling parent ${b.parent}`);
   }
-  // Demo readouts: phase-3 impact monitors + psRoom + agState.
-  const monParams = proj.monitors.map((m) => Object.values(m.params ?? {}));
+  // Debug stage monitors are hidden in the shipped build (default)
+  // and restored by the debugMonitors build option: phase-3 impact
+  // monitors + psRoom + agState.
+  assert.deepEqual(proj.monitors, []);
+  const monProj = buildRoomsDemo(true).buildProject() as Proj;
+  const monParams = monProj.monitors.map((m) => Object.values(m.params ?? {}));
   assert.deepEqual(monParams, [['evLastImpact'], ['evLastObj'], ['evVal'], ['psRoom'], ['agState']]);
 });
 

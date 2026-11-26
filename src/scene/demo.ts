@@ -6,8 +6,9 @@
  * - a physical sphere you can push, grab (hold F), carry and throw (G),
  * - a physical box, same interactions,
  * - a small physical sphere that starts in the air and falls at start,
- *   landing with an impact event (watch the evLastImpact / evVal stage
- *   monitors: the impact magnitude is shown and recorded),
+ *   landing with an impact event (recorded in the ev* lists; build
+ *   with FLASH_MONITORS=1 to also show the evLastImpact / evVal stage
+ *   monitors — they are hidden in the shipped build),
  * - a fixed (non-physical) cylinder that blocks the player.
  *
  * Controls (PROVISIONAL demo bindings; key assignment is game-side):
@@ -76,13 +77,13 @@ export const demoDynScene: DynSceneSpec = {
 };
 
 /** Build the demo scene's ProjectBuilder (temple static scene + dynamic objects). */
-export function buildDemo(): ProjectBuilder {
-  return buildTempleProject(bakeCinemaScene(), demoDynScene);
+export function buildDemo(debugMonitors = false): ProjectBuilder {
+  return buildTempleProject(bakeCinemaScene(), { ...demoDynScene, debugMonitors });
 }
 
 /** Build and save dist/demo.sb3 (or a caller-provided path). Returns the output path. */
-export function buildDemoSb3(outPath?: string): string {
-  const pb = buildDemo();
+export function buildDemoSb3(outPath?: string, debugMonitors = false): string {
+  const pb = buildDemo(debugMonitors);
   const out = outPath ?? path.join(__dirname, '..', '..', '..', 'dist', 'demo.sb3');
   return pb.saveSb3(out);
 }

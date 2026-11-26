@@ -173,19 +173,25 @@ export function buildTempleProject(baked: TempleBake, dyn?: DynSceneSpec | null,
   objId = s.lst("objId", DYN ? [1, 2, 3, 4, 5, ...DYN.objects.map((_o, ix) => 101 + ix)] : [1, 2, 3, 4, 5]);
   objDist = s.lst("objDist", DYN ? [...Array(5 + DYN.objects.length).fill(0)] : [0, 0, 0, 0, 0]);
   curObj = s.var("curObj");
-  const dynCtx: DynCtx | null = DYN ? { s, dyn: DYN, focal: FOCAL, sun: [SUN_X, SUN_Y, SUN_Z], drawQuad: null as any, smoothCyl: null as any, rooms: HAS_ROOMS } : null;
+  const dynCtx: DynCtx | null = DYN ? { s, dyn: DYN, focal: FOCAL, sun: [SUN_X, SUN_Y, SUN_Z], drawQuad: null as any, smoothCyl: null as any, traceRefl: null as any, rooms: HAS_ROOMS } : null;
   if (DYN) declareDynData(s, DYN);
   if (ROOMS) declareRoomData(s, ROOMS, DYN);
   if (HAS_AGENTS) declareAiData(s, AGENTS!, DYN!);
   if (DYN) {
     declarePhysData(s, DYN);
-    // Phase-3 demo readouts: latest impact magnitude / object on stage.
-    s.showVar('evLastImpact', 8, 8);
-    s.showVar('evLastObj', 8, 32);
-    s.showList('evVal', 8, 60, 110, 84);
-    // Phase-5 demo readouts: current room and the agents' FSM states.
-    if (HAS_ROOMS) s.showVar('psRoom', 140, 8);
-    if (HAS_AGENTS) s.showList('agState', 140, 32, 110, 84);
+    // Debug stage monitors are opt-in (DynSceneSpec.debugMonitors,
+    // default off): shipped demo builds keep the stage clean — the
+    // watchers covered the rendered scene (user feedback 2026-11-26).
+    // The example builders re-enable them with FLASH_MONITORS=1.
+    if (DYN.debugMonitors) {
+      // Phase-3 demo readouts: latest impact magnitude / object on stage.
+      s.showVar('evLastImpact', 8, 8);
+      s.showVar('evLastObj', 8, 32);
+      s.showList('evVal', 8, 60, 110, 84);
+      // Phase-5 demo readouts: current room and the agents' FSM states.
+      if (HAS_ROOMS) s.showVar('psRoom', 140, 8);
+      if (HAS_AGENTS) s.showList('agState', 140, 32, 110, 84);
+    }
   }
   function packQuadLists(prefix: any, quads: any, extra_cols: any = null): any {
     let ls: any, vi: any, q: any, name: any, fn: any;
@@ -297,6 +303,7 @@ export function buildTempleProject(baked: TempleBake, dyn?: DynSceneSpec | null,
   if (DYN) {
     dynCtx!.drawQuad = p_draw_quad;
     dynCtx!.smoothCyl = p_smooth_cyl;
+    dynCtx!.traceRefl = p_trace_refl;
     const handles = defineDynProcs(dynCtx!);
     p_dyn_sphere = handles.sphere;
     p_dyn_box = handles.box;

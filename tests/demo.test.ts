@@ -7,9 +7,10 @@
  * dyn_draw_sphere / dyn_draw_box / dyn_collide / dyn_raycast /
  * dyn_physics / dyn_grab, the dyn SoA table (incl. phase-3 physics
  * columns) with the declared initial values, impact-event store empty
- * at start, stage monitors for the impact readouts, pen-only
- * extensions, reference integrity, and build determinism. The temple
- * build itself must stay at the phase-1 signature (temple.test.ts).
+ * at start, debug stage monitors hidden by default and available via
+ * the debugMonitors build option, pen-only extensions, reference
+ * integrity, and build determinism. The temple build itself must stay
+ * at the phase-1 signature (temple.test.ts).
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -37,9 +38,9 @@ function demoProject(): { proj: Proj; sprite: Proj['targets'][number] } {
 test('demo project has the phase-3 structural signature', () => {
   const { proj, sprite } = demoProject();
   assert.deepEqual(proj.extensions, ['pen']);
-  assert.equal(Object.keys(sprite.blocks).length, 6949);
-  assert.equal(Object.keys(sprite.variables).length, 374);
-  assert.equal(Object.keys(sprite.lists).length, 102);
+  assert.equal(Object.keys(sprite.blocks).length, 7298);
+  assert.equal(Object.keys(sprite.variables).length, 385);
+  assert.equal(Object.keys(sprite.lists).length, 103);
   const procs = Object.values(sprite.blocks)
     .filter((b) => b.opcode === 'procedures_prototype')
     .map((b) => b.mutation?.proccode);
@@ -90,8 +91,13 @@ test('phase-3 physics columns and event store start in the right state', () => {
   assert.equal(vars.get('evCount'), 0);
   assert.equal(vars.get('evLastImpact'), 0);
   assert.equal(vars.get('psHeld'), 0);
-  // Stage monitors expose the impact readouts (display requirement).
-  const monParams = proj.monitors.map((m) => Object.values(m.params ?? {}));
+  // Shipped builds hide the debug stage monitors (they covered the
+  // rendered scene — user feedback 2026-11-26); the debugMonitors
+  // build option (FLASH_MONITORS=1 in the example builder) restores
+  // the impact readouts.
+  assert.deepEqual(proj.monitors, []);
+  const monProj = buildDemo(true).buildProject() as Proj;
+  const monParams = monProj.monitors.map((m) => Object.values(m.params ?? {}));
   assert.deepEqual(monParams, [['evLastImpact'], ['evLastObj'], ['evVal']]);
 });
 
