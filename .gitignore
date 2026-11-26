@@ -1,0 +1,7 @@
+node_modules/
+dist/
+tests/fixtures/out/
+benchmarks/out/
+benchmarks/vendor/
+benchmarks/_runner.html
+__pycache__/
