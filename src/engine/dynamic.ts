@@ -150,27 +150,62 @@ export function defineDynProcs(ctx: DynCtx): DynProcs {
   const packA = (a: any, r: any, g: any, b: any) => s.add(s.mul(a, 16777216), pack(r, g, b));
 
   // --- dyn_draw_sphere: layered discs, runtime-lit from the material color.
+  // Look pass (2026-11-26, user feedback "tacked-on, no gloss"): the old
+  // recipe used a FIXED lower-right highlight offset, which disagrees
+  // with the scene sun (0.72, 0.44, 0.54 — upper right at spawn yaw).
+  // Now the sun is projected through the camera basis exactly like
+  // render_sky's corona (incl. the mirror-pass SUN_Y negation), and the
+  // gradient is built from 6 layers: fresnel rim shell (sky-tinted,
+  // translucent, slightly oversized), limb-darkened base, two diffuse
+  // steps toward the sun, a specular core and a pure-white pinpoint.
+  // Scratch registers reused: dT1..dT3 = color temps, dT4 = sun screen
+  // length, dT5/dT6 = sun screen unit direction (ux, uy).
+  const mixTo = (tr: number, tg: number, tb: number, f: number): any[] => [
+    s.setVar('dT1', s.floor(s.add(v('oColR'), s.mul(s.sub(tr, v('oColR')), f)))),
+    s.setVar('dT2', s.floor(s.add(v('oColG'), s.mul(s.sub(tg, v('oColG')), f)))),
+    s.setVar('dT3', s.floor(s.add(v('oColB'), s.mul(s.sub(tb, v('oColB')), f)))),
+  ];
+  const shadeBy = (f: number): any[] => [
+    s.setVar('dT1', s.floor(s.mul(v('oColR'), f))),
+    s.setVar('dT2', s.floor(s.mul(v('oColG'), f))),
+    s.setVar('dT3', s.floor(s.mul(v('oColB'), f))),
+  ];
+  const disc = (ox: any, oy: any, size: any, color: any): any[] => [
+    s.gotoXy(ox, oy), s.penSetSize(size), s.penSetColor(color), s.penDown(), s.penUp(),
+  ];
+  const off = (k: number) => s.add(v('sx0'), s.mul(s.mul(v('sr'), k), v('dT5')));
+  const offY = (k: number) => s.add(v('sy0'), s.mul(s.mul(v('sr'), k), v('dT6')));
   const sphere = s.defineProc('dyn_draw_sphere', undefined, true, [
     ...camXform(s, v('oX'), v('oY'), v('oZ'), 'cx0', 'cy0', 'cz0'),
     s.if(s.gt(v('cz0'), s.add(v('oR'), 0.2)), [
       s.setVar('sx0', s.mul(s.div(v('cx0'), v('cz0')), focal)),
       s.setVar('sy0', s.mul(s.div(v('cy0'), v('cz0')), focal)),
       s.setVar('sr', s.mul(s.div(v('oR'), v('cz0')), focal)),
-      // base disc
-      s.gotoXy(v('sx0'), v('sy0')), s.penSetSize(s.mul(v('sr'), 2.0)),
-      s.penSetColor(pack(v('oColR'), v('oColG'), v('oColB'))), s.penDown(), s.penUp(),
-      // light disc (toward the sun side, lerped to white, translucent)
-      s.setVar('dT1', s.floor(s.add(v('oColR'), s.mul(s.sub(255, v('oColR')), 0.4)))),
-      s.setVar('dT2', s.floor(s.add(v('oColG'), s.mul(s.sub(255, v('oColG')), 0.4)))),
-      s.setVar('dT3', s.floor(s.add(v('oColB'), s.mul(s.sub(255, v('oColB')), 0.4)))),
-      s.gotoXy(s.add(v('sx0'), s.mul(v('sr'), 0.16)), s.sub(v('sy0'), s.mul(v('sr'), 0.16))),
-      s.penSetSize(s.mul(v('sr'), 1.3)), s.penSetColor(packA(150, v('dT1'), v('dT2'), v('dT3'))), s.penDown(), s.penUp(),
-      // specular dot
-      s.setVar('dT1', s.floor(s.add(v('oColR'), s.mul(s.sub(255, v('oColR')), 0.85)))),
-      s.setVar('dT2', s.floor(s.add(v('oColG'), s.mul(s.sub(255, v('oColG')), 0.85)))),
-      s.setVar('dT3', s.floor(s.add(v('oColB'), s.mul(s.sub(255, v('oColB')), 0.85)))),
-      s.gotoXy(s.add(v('sx0'), s.mul(v('sr'), 0.34)), s.sub(v('sy0'), s.mul(v('sr'), 0.34))),
-      s.penSetSize(s.mul(v('sr'), 0.38)), s.penSetColor(packA(230, v('dT1'), v('dT2'), v('dT3'))), s.penDown(), s.penUp(),
+      // Sun screen direction (render_sky convention; mirror negates SUN_Y).
+      s.ifElse(s.eq(v('mirrorFlag'), 1), [s.setVar('dT1', -sun[1])], [s.setVar('dT1', sun[1])]),
+      s.setVar('dT2', s.add(s.mul(sun[0], v('rgtX')), s.mul(sun[2], v('rgtZ')))),
+      s.setVar('dT3', s.add(s.mul(sun[0], v('upX')), s.add(s.mul(v('dT1'), v('upY')), s.mul(sun[2], v('upZ'))))),
+      s.setVar('dT4', s.sqrt(s.add(s.mul(v('dT2'), v('dT2')), s.mul(v('dT3'), v('dT3'))))),
+      s.ifElse(s.lt(v('dT4'), 0.08),
+        [s.setVar('dT5', 0.85), s.setVar('dT6', 0.52)],
+        [s.setVar('dT5', s.div(v('dT2'), v('dT4'))), s.setVar('dT6', s.div(v('dT3'), v('dT4')))]),
+      // 1. fresnel rim shell: sky-tinted, translucent, slightly oversized
+      ...mixTo(168, 199, 235, 0.55),
+      ...disc(v('sx0'), v('sy0'), s.mul(v('sr'), 2.06), packA(80, v('dT1'), v('dT2'), v('dT3'))),
+      // 2. limb-darkened base
+      ...shadeBy(0.7),
+      ...disc(v('sx0'), v('sy0'), s.mul(v('sr'), 1.94), pack(v('dT1'), v('dT2'), v('dT3'))),
+      // 3. mid diffuse step toward the sun
+      ...shadeBy(0.93),
+      ...disc(off(0.2), offY(0.2), s.mul(v('sr'), 1.58), packA(205, v('dT1'), v('dT2'), v('dT3'))),
+      // 4. sun diffuse core
+      ...mixTo(255, 255, 255, 0.32),
+      ...disc(off(0.4), offY(0.4), s.mul(v('sr'), 1.02), packA(215, v('dT1'), v('dT2'), v('dT3'))),
+      // 5. specular core (the gloss)
+      ...mixTo(255, 255, 255, 0.9),
+      ...disc(off(0.55), offY(0.55), s.mul(v('sr'), 0.46), packA(240, v('dT1'), v('dT2'), v('dT3'))),
+      // 6. specular pinpoint: pure white, opaque
+      ...disc(off(0.6), offY(0.6), s.mul(v('sr'), 0.18), pack(255, 255, 255)),
     ]),
   ]);
 
@@ -180,13 +215,25 @@ export function defineDynProcs(ctx: DynCtx): DynProcs {
   const ez = (su: number, sw: number) =>
     s.add(v('oZ'), s.add(s.mul(su, v('dExz')), s.mul(sw, v('dEzz'))));
   const ey = (sv: number) => s.add(v('oY'), s.mul(sv, v('oHy')));
+  // Per-face Blinn specular (look pass, 2026-11-26): ndoth^8 against the
+  // half vector prepared in the box proc (dT2..dT4 = h, dT8 = |h|), added
+  // as (255 - albedo) * spec * 0.5 so it whitens toward white and can
+  // never overflow a channel (albedo*shade <= albedo, plus at most
+  // (255-albedo)/2). Specular result lands in dT5. Computed in the
+  // original world space in both passes, same convention as the
+  // existing diffuse term.
   const face = (n: [any, any, any], ndotl: any, corners: Array<[number, number, number]>): any[] => [
     s.setVar('dT1', ndotl),
     s.if(s.lt(v('dT1'), 0), [s.setVar('dT1', 0)]),
     s.setVar('dShade', s.add(0.35, s.mul(0.65, v('dT1')))),
-    s.setVar('colR', s.floor(s.mul(v('oColR'), v('dShade')))),
-    s.setVar('colG', s.floor(s.mul(v('oColG'), v('dShade')))),
-    s.setVar('colB', s.floor(s.mul(v('oColB'), v('dShade')))),
+    s.setVar('dT1', s.div(s.add(s.mul(n[0], v('dT2')), s.add(s.mul(n[1], v('dT3')), s.mul(n[2], v('dT4')))), v('dT8'))),
+    s.if(s.lt(v('dT1'), 0), [s.setVar('dT1', 0)]),
+    s.setVar('dT5', s.mul(v('dT1'), v('dT1'))),
+    s.setVar('dT5', s.mul(v('dT5'), v('dT5'))),
+    s.setVar('dT5', s.mul(v('dT5'), v('dT5'))),
+    s.setVar('colR', s.floor(s.add(s.mul(v('oColR'), v('dShade')), s.mul(s.sub(255, v('oColR')), s.mul(v('dT5'), 0.5))))),
+    s.setVar('colG', s.floor(s.add(s.mul(v('oColG'), v('dShade')), s.mul(s.sub(255, v('oColG')), s.mul(v('dT5'), 0.5))))),
+    s.setVar('colB', s.floor(s.add(s.mul(v('oColB'), v('dShade')), s.mul(s.sub(255, v('oColB')), s.mul(v('dT5'), 0.5))))),
     ...corners.flatMap(([su, sv, sw], ci) => [
       s.setVar(`qx${ci}`, ex(su, sw)), s.setVar(`qy${ci}`, ey(sv)), s.setVar(`qz${ci}`, ez(su, sw)),
     ]),
@@ -204,6 +251,19 @@ export function defineDynProcs(ctx: DynCtx): DynProcs {
     s.setVar('dExx', s.mul(v('dCos'), v('oHx'))), s.setVar('dExz', s.mul(s.mul(v('dSin'), -1), v('oHx'))),
     s.setVar('dEzx', s.mul(v('dSin'), v('oHz'))), s.setVar('dEzz', s.mul(v('dCos'), v('oHz'))),
     s.penSetSize(2.4), s.setVar('quadMode', 2), s.setVar('cullFlag', 1), s.setVar('fillLOD', 0),
+    // Half vector for the per-face specular: view (center -> camera,
+    // dT5..dT7 scratch) normalized, plus the sun; h kept in dT2..dT4
+    // with |h| in dT8 (guarded against the degenerate sun = -view case).
+    s.setVar('dT5', s.sub(v('camX'), v('oX'))),
+    s.setVar('dT6', s.sub(v('camY'), v('oY'))),
+    s.setVar('dT7', s.sub(v('camZ'), v('oZ'))),
+    s.setVar('dT8', s.sqrt(s.add(s.mul(v('dT5'), v('dT5')), s.add(s.mul(v('dT6'), v('dT6')), s.mul(v('dT7'), v('dT7')))))),
+    s.if(s.lt(v('dT8'), 0.001), [s.setVar('dT8', 1)]),
+    s.setVar('dT2', s.add(sun[0], s.div(v('dT5'), v('dT8')))),
+    s.setVar('dT3', s.add(sun[1], s.div(v('dT6'), v('dT8')))),
+    s.setVar('dT4', s.add(sun[2], s.div(v('dT7'), v('dT8')))),
+    s.setVar('dT8', s.sqrt(s.add(s.mul(v('dT2'), v('dT2')), s.add(s.mul(v('dT3'), v('dT3')), s.mul(v('dT4'), v('dT4')))))),
+    s.if(s.lt(v('dT8'), 0.01), [s.setVar('dT2', 0), s.setVar('dT3', 1), s.setVar('dT4', 0), s.setVar('dT8', 1)]),
     ...face(nU, dotU, [[1, 1, 1], [1, 1, -1], [1, -1, -1], [1, -1, 1]]),
     ...face([s.mul(v('dCos'), -1), 0, v('dSin')], s.mul(dotU, -1), [[-1, 1, -1], [-1, 1, 1], [-1, -1, 1], [-1, -1, -1]]),
     ...face([0, 1, 0], sun[1], [[1, 1, 1], [-1, 1, 1], [-1, 1, -1], [1, 1, -1]]),
