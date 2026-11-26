@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildDemo, demoDynScene } from '../src/scene/demo.js';
 import { resolveDynObject } from '../src/scene/dynamic.js';
+import { bakeCinemaScene } from '../src/bake/temple-bake.js';
 
 type Proj = {
   targets: Array<{
@@ -92,6 +93,26 @@ test('phase-3 physics columns and event store start in the right state', () => {
   // Stage monitors expose the impact readouts (display requirement).
   const monParams = proj.monitors.map((m) => Object.values(m.params ?? {}));
   assert.deepEqual(monParams, [['evLastImpact'], ['evLastObj'], ['evVal']]);
+});
+
+test('demo bounds keep dynamic objects over the floor tiles', () => {
+  // Regression test for the 2026-11-26 render-bug report: the phase-2
+  // demo bounds (z down to -6.1) let pushed objects leave the floor
+  // tiles (actual extent from the bake: z from -4) and float over the
+  // mirror-sky void. Object centers are clamped to bounds shrunk by
+  // their radius/half-extent margin, so an object's full XZ extent
+  // stays within [bounds] on each axis; requiring bounds inside the
+  // tile extent therefore keeps every object on the floor.
+  const [floorQuads] = bakeCinemaScene() as [number[][][]];
+  const xs = floorQuads.flatMap((q) => [q[0][0], q[1][0], q[2][0], q[3][0]]);
+  const zs = floorQuads.flatMap((q) => [q[0][2], q[1][2], q[2][2], q[3][2]]);
+  const tileX: [number, number] = [Math.min(...xs), Math.max(...xs)];
+  const tileZ: [number, number] = [Math.min(...zs), Math.max(...zs)];
+  const b = demoDynScene.bounds;
+  assert.ok(b.x[0] >= tileX[0], `bounds.x[0]=${b.x[0]} west of floor tiles ${tileX[0]}`);
+  assert.ok(b.x[1] <= tileX[1], `bounds.x[1]=${b.x[1]} east of floor tiles ${tileX[1]}`);
+  assert.ok(b.z[0] >= tileZ[0], `bounds.z[0]=${b.z[0]} south of floor tiles ${tileZ[0]}`);
+  assert.ok(b.z[1] <= tileZ[1], `bounds.z[1]=${b.z[1]} north of floor tiles ${tileZ[1]}`);
 });
 
 test('demo build is deterministic', () => {

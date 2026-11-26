@@ -26,9 +26,14 @@ import type { DynSceneSpec } from './dynamic';
 
 export const demoDynScene: DynSceneSpec = {
   floorY: -1.2, // the temple floor plane (transcribed from the phase-1 scene)
-  // Inside the temple camera clamps x[-3.15, 4.5] / z[-6.5, 3.85], with
-  // margin so pushed objects stay on the floor tiles (x[-4,4], z[-5,4]).
-  bounds: { x: [-3.6, 4.1], z: [-6.1, 3.5] },
+  // Bounds must stay inside the actual floor tiles (from the bake:
+  // x[-3.55, 6.2], z[-4, 4.3]) so pushed/thrown objects never leave the
+  // floor and float over the mirror-sky void south of the platform.
+  // (Phase 2 used z down to -6.1, misremembering the tile extent as
+  // z[-5,4]; that was the 2026-11-26 render-bug report — see
+  // tests/demo.test.ts "demo bounds keep dynamic objects over the
+  // floor tiles".) x[1]/z[1] also stay within camera reach.
+  bounds: { x: [-3.5, 4.1], z: [-3.95, 3.5] },
   playerRadius: 0.35,
   objects: [
     {
