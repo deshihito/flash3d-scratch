@@ -79,5 +79,12 @@ for (const [name, build] of [['temple', buildTemple], ['demo', buildDemo]] as co
     assert.ok(assigned.has('0'), 'no code path sets reflSkip=0 (settle frames)');
     const eff = assignedLiterals(sprite, 'reflEff');
     assert.ok(eff.has('1') && eff.has('0'), 'reflEff must be derived both ways');
+    // Phase 4 item 2: RT checkerboard is driven by the same loops —
+    // cbOn=1 in the moving branch (with SPHERE_STEP kept at 1), 0 on settle.
+    const cb = assignedLiterals(sprite, 'cbOn');
+    assert.ok(cb.has('1'), 'no code path sets cbOn=1 (moving frames)');
+    assert.ok(cb.has('0'), 'no code path sets cbOn=0 (settle frames)');
+    const cbVar = Object.values(sprite.variables).find((v) => v[0] === 'cbOn')!;
+    assert.equal(cbVar[1], 0, 'cbOn must start at 0 (full quality)');
   });
 }

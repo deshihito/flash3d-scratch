@@ -542,12 +542,13 @@ export function dynLoopBody(ctx: DynLoopCtx): any[] {
     s.setVar('psZ', v('camZ')),
     // --- render decision (same policy as phase 1) ---
     s.ifElse(s.eq(v('tmp3'), 1), [
-      s.ifElse(s.eq(v('AUTO_STEP'), 1), [s.setVar('SPHERE_STEP', 2), s.setVar('reflSkip', 1)], [s.setVar('reflSkip', 0)]),
+      s.ifElse(s.eq(v('AUTO_STEP'), 1), [s.setVar('SPHERE_STEP', 1), s.setVar('cbOn', 1), s.setVar('reflSkip', 1)], [s.setVar('SPHERE_STEP', 1), s.setVar('cbOn', 0), s.setVar('reflSkip', 0)]),
       s.callProc(ctx.renderFrame),
       s.setVar('needsRender', 1),
     ], [
       s.if(s.eq(v('needsRender'), 1), [
         s.if(s.eq(v('AUTO_STEP'), 1), [s.setVar('SPHERE_STEP', 1)]),
+        s.setVar('cbOn', 0),
         s.setVar('reflSkip', 0),
         s.callProc(ctx.renderFrame),
         s.setVar('needsRender', 0),
