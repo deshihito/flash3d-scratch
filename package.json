@@ -9,12 +9,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "gen:minimal": "npm run build && node dist/tests/fixtures/make-minimal.js",
-    "test": "npm run build && node --test dist/tests/builder.test.js dist/tests/temple.test.js dist/tests/demo.test.js dist/tests/physics.test.js dist/tests/render-policy.test.js && npm run verify:builder",
+    "test": "npm run build && node --test dist/tests/builder.test.js dist/tests/temple.test.js dist/tests/demo.test.js dist/tests/physics.test.js dist/tests/render-policy.test.js dist/tests/rooms.test.js && npm run verify:builder",
     "verify:builder": "node tools/compare.mjs",
     "build:temple": "npm run build && node dist/examples/temple/build.js",
     "verify:temple": "node tools/compare-temple.mjs && node tools/validate.mjs dist/temple.sb3",
     "build:demo": "npm run build && node dist/examples/demo/build.js",
-    "verify:demo": "node tools/validate.mjs dist/demo.sb3"
+    "verify:demo": "node tools/validate.mjs dist/demo.sb3",
+    "build:rooms": "npm run build && node dist/examples/rooms/build.js",
+    "verify:rooms": "node tools/validate.mjs dist/rooms.sb3"
   },
   "type": "commonjs",
   "version": "0.1.0"

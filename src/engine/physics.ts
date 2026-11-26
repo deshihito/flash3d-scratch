@@ -46,6 +46,7 @@
  */
 import type { ProcHandle } from '../builder/index';
 import { loadRow, type DynCtx } from './dynamic';
+import { dynRoomActiveExpr } from './rooms';
 import { dynHalfHeight, resolveDynObject, resolvePhysics, type DynSceneSpec } from '../scene/dynamic';
 
 export interface PhysProcs { raycast: ProcHandle; physics: ProcHandle; grab: ProcHandle }
@@ -247,13 +248,18 @@ export function definePhysProcs(ctx: DynCtx): PhysProcs {
       ]),
     ];
   };
+  // Phase 5: physics only runs for objects in active rooms (the extra
+  // condition factor is emitted only in room builds, so the phase-3
+  // demo build is unchanged).
+  const physGate = (base: any, idx: any): any =>
+    ctx.rooms ? s.land(base, dynRoomActiveExpr(s, idx)) : base;
   const physics = s.defineProc('dyn_physics', undefined, true, [
     s.changeVar('physFrame', 1),
     s.setVar('physActive', 0),
     s.setVar('pI', 1),
     s.repeat(v('dynN'), [
       ...loadRow(s, v('pI')),
-      s.if(s.land(s.eq(v('oPhys'), 1), s.land(s.eq(v('oHeld'), 0), s.eq(v('oSleep'), 0))), [
+      s.if(physGate(s.land(s.eq(v('oPhys'), 1), s.land(s.eq(v('oHeld'), 0), s.eq(v('oSleep'), 0))), v('pI')), [
         s.changeVar('physActive', 1),
         // Semi-implicit Euler: gravity, terminal velocity, integrate.
         s.changeVar('oVY', s.mul(v('physGrav'), -1)),
@@ -300,7 +306,7 @@ export function definePhysProcs(ctx: DynCtx): PhysProcs {
     s.setVar('pI', 1),
     s.repeat(v('dynN'), [
       ...loadRow(s, v('pI')),
-      s.if(s.land(s.eq(v('oPhys'), 1), s.eq(v('oHeld'), 0)), [
+      s.if(physGate(s.land(s.eq(v('oPhys'), 1), s.eq(v('oHeld'), 0)), v('pI')), [
         s.setVar('pJ', s.add(v('pI'), 1)),
         s.repeat(s.sub(v('dynN'), v('pI')), [
           ...loadRowE(s, v('pJ')),
@@ -310,7 +316,7 @@ export function definePhysProcs(ctx: DynCtx): PhysProcs {
           s.setVar('oZ', s.itemOf('dynZ', v('pI'))),
           s.setVar('oVX', s.itemOf('dynVX', v('pI'))),
           s.setVar('oVZ', s.itemOf('dynVZ', v('pI'))),
-          s.if(s.land(s.eq(v('ePhys'), 1), s.eq(v('eHeld'), 0)), [
+          s.if(physGate(s.land(s.eq(v('ePhys'), 1), s.eq(v('eHeld'), 0)), v('pJ')), [
             s.setVar('dT1', v('oR')),
             s.if(s.eq(v('oKind'), 3), [s.setVar('dT1', v('oHx')), s.if(s.gt(v('oHz'), v('dT1')), [s.setVar('dT1', v('oHz'))])]),
             s.setVar('dT2', v('eR')),
@@ -443,6 +449,14 @@ export interface DynLoopCtx {
   physics: ProcHandle;
   grab: ProcHandle;
   renderFrame: ProcHandle;
+  /** Phase 5 (optional): room activation refresh, run after the ps->cam sync. */
+  roomUpdate?: ProcHandle;
+  /** Phase 5 (optional): player vs static room walls, run after dyn_collide. */
+  roomCollide?: ProcHandle;
+  /** Phase 5 (optional): AI driver, run after collision. */
+  aiUpdate?: ProcHandle;
+  /** Phase 5 (optional): player clamp from the RoomsSpec (default: temple clamp). */
+  playerClamp?: { x: [number, number]; y: [number, number]; z: [number, number] };
 }
 
 /**
@@ -522,18 +536,21 @@ export function dynLoopBody(ctx: DynLoopCtx): any[] {
     s.changeVar('psZ', s.mul(ctx.fwdZ, s.mul(0.12, v('inMF')))),
     s.changeVar('psZ', s.mul(ctx.rgtZ, s.mul(0.12, v('inMS')))),
     s.changeVar('psY', s.mul(0.08, v('inMU'))),
-    ...ctx.clampR(s, 'psX', -3.15, 4.5),
-    ...ctx.clampR(s, 'psY', -0.85, 2.55),
-    ...ctx.clampR(s, 'psZ', -6.5, 3.85),
+    ...ctx.clampR(s, 'psX', ctx.playerClamp?.x[0] ?? -3.15, ctx.playerClamp?.x[1] ?? 4.5),
+    ...ctx.clampR(s, 'psY', ctx.playerClamp?.y[0] ?? -0.85, ctx.playerClamp?.y[1] ?? 2.55),
+    ...ctx.clampR(s, 'psZ', ctx.playerClamp?.z[0] ?? -6.5, ctx.playerClamp?.z[1] ?? 3.85),
     s.if(s.lor(s.lor(v('inMF'), v('inMS')), s.lor(v('inMU'), s.lor(v('inLookYaw'), v('inLookPitch')))), [s.setVar('tmp3', 1)]),
     // --- sync PlayerState -> kernel camera registers ---
     s.setVar('camX', v('psX')), s.setVar('camY', v('psY')), s.setVar('camZ', v('psZ')),
     s.setVar('camYaw', v('psYaw')), s.setVar('camPitch', v('psPitch')),
-    // --- simulation: grab, physics, player collision ---
+    // --- simulation: rooms, grab, physics, player collision, AI ---
+    ...(ctx.roomUpdate ? [s.callProc(ctx.roomUpdate)] : []),
     s.setVar('physDirty', 0),
     s.callProc(ctx.grab),
     s.callProc(ctx.physics),
     s.callProc(ctx.collide),
+    ...(ctx.roomCollide ? [s.callProc(ctx.roomCollide)] : []),
+    ...(ctx.aiUpdate ? [s.callProc(ctx.aiUpdate)] : []),
     s.if(s.eq(v('dynMoved'), 1), [s.setVar('tmp3', 1)]),
     s.if(s.eq(v('physDirty'), 1), [s.setVar('tmp3', 1)]),
     s.if(s.gt(v('physActive'), 0), [s.setVar('tmp3', 1)]),

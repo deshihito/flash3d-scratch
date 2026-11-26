@@ -4,7 +4,7 @@
 
 土台は研究レポ **[deshihito/scratch-ue5-pen-research](https://github.com/deshihito/scratch-ue5-pen-research)** の **UE5 hybrid**（`ue5_lumen_hybrid.sb3`）—「ベイク済みラスタライザ＋解析的レイトレのヒーローオブジェクト＋平面反射の二重描画パス」という描画配分で、品質と実用速度を両立させた実証作である。Flash はその方式を引き継ぎ、固定シーンのデモから「シーンを差し替えられるエンジン」へ汎用化する。画質は現行水準を維持し、主眼は**最適化**と**不足コンポーネントの補完**に置く。
 
-## 現在の状態: フェーズ3（掴む/運ぶ＋簡易物理＋衝撃イベント）
+## 現在の状態: フェーズ5（マップ/ルーム表現＋汎用AI基盤）
 
 | フェーズ | 内容 | 状態 |
 |---|---|---|
@@ -12,8 +12,9 @@
 | 1 | L1 エンジンコア＋L2 シーン記述 API＋神殿シーン再現（MVP） | ✅ 完了（実機目視はユーザー確認待ち） |
 | 2 | 動的オブジェクト基盤（SoA テーブル＋N個ソート統合＋実行時シェーディング描画）＋衝突（プレイヤー vs 動的オブジェクト、押す挙動） | ✅ 完了（実機確認はユーザー待ち） |
 | 3 | 掴む/運ぶ＋簡易物理（重力・接地・スリープ、衝撃量イベント） | ✅ 完了（実機確認はユーザー待ち） |
-| 4 | 最適化（反射 LOD / RT 時間分割 / ペン色キャッシュ ほか） | 未着手 |
-| 5–6 | マップ/ルーム＋AI 基盤、最適化（中優先群）＋仕上げ | 未着手 |
+| 4 | 最適化（反射 LOD / RT 時間分割 / ペン色キャッシュ / 床シェーディング事前計算） | ✅ 完了（実機確認はユーザー待ち） |
+| 5 | マップ/ルーム表現＋部屋単位カリング＋汎用AIステートマシン基盤 | ✅ 完了（実機確認はユーザー待ち） |
+| 6 | 最適化（中優先群）＋仕上げ | 未着手 |
 
 フェーズ2の詳細: 動的オブジェクトは `src/scene/dynamic.ts`（L2 宣言: 球/円柱/箱、位置・yaw・マテリアル・pushable）で宣言し、`buildTempleProject(baked, dynSpec)` に渡すと `src/engine/dynamic.ts`（L1）が SoA リスト（dynKind/dynX/... 全15本）・描画プロシージャ（dyn_draw_sphere / dyn_draw_box）・衝突プロシージャ（dyn_collide）を追加で emit する。動的オブジェクトは既存の距離ソート（sort_5_objects を 5+N 件へ一般化、ID 101〜）に統合され、静的ベイクシーンと共存する。dynSpec を渡さない神殿ビルドはフェーズ1と完全に同一の出力のまま。
 
@@ -22,6 +23,15 @@
 ```bash
 npm run build:demo    # dist/demo.sb3（神殿＋物理球・箱＋落下球＋固定円柱のデモ: F長押しで掴む/離して落とす、保持中にGで投げる）
 npm run verify:demo   # 構造検証
+```
+
+フェーズ4の詳細: 実行ブロック数ハーネス（distilled ランタイム）で実測しながら、反射 LOD（鏡像のフラット化＋行間引き）／ペン色キャッシュ＋シェーディング量子化／RT チェッカーボード時間分割（移動中のみ）／床シェーディング事前計算（視錐台棄却＋スペキュラ省略）を入れた。神殿6ポーズ合計（静止画）でペン色設定 −28.7%・床リスト読み −23.1%。現行の神殿シグネチャは 4,346ブロック/242変数/76リスト/15 proc。
+
+フェーズ5の詳細: `src/scene/rooms.ts`（L2）で部屋を「XZ 矩形＋隣接集合」として宣言し、部屋2以降の床タイル・壁はホスト側で神殿と同じ照明ベイクを施して `src/engine/rooms.ts`（L1）の `render_rooms` が描く（部屋1は従来のベイク幾何が担う）。`room_update` がプレイヤーの所属部屋 `psRoom` と有効部屋集合（所属＋隣接）`rmActive` を維持し、描画・物理・衝突・AI は非アクティブ部屋のオブジェクトを間引く。プレイヤー vs 部屋の壁は `room_collide`（静的 AABB 押し出し）。`src/scene/ai.ts`（L2）＋`src/engine/ai.ts`（L1）は汎用 AI 基盤: 状態は数値 ID の SoA テーブル（`agState` 等）で公開し、知覚（視界＝距離＋視野角＋レイキャスト遮蔽、聴覚＝移動音＋衝撃ノイズの半径再公開）とステアリング（目標点 seek、壁回避は衝突解決任せ、経路探索なし）をプリミティブとして提供する。参照ステートマシン（巡回→追跡→帰還→巡回）は `agAuto=1` のエージェントにだけ適用され、状態の意味付け・遷移先の追加はゲーム側の仕事。AI の速度・知覚範囲等の数値はすべてデモ側の暫定値で、エンジン既定値ではない。
+
+```bash
+npm run build:rooms   # dist/rooms.sb3（4部屋マップ＋巡回AI 2体のデモ: WASD/矢印で移動、Shiftでダッシュ）
+npm run verify:rooms  # 構造検証
 ```
 
 ## 構成
@@ -35,15 +45,21 @@ src/engine/         # L1: エンジンコア（デバイスコード = Scratch �
                     #   hybrid-engine.ts  現行 hybrid の15プロシージャ＋メインループ
                     #   dynamic.ts        動的オブジェクト（SoA管理・描画・衝突、フェーズ2）
                     #   physics.ts        入力intent/PlayerState・レイキャスト・掴む/運ぶ・簡易物理・衝撃イベント（フェーズ3）
+                    #   rooms.ts          部屋データ・所属判定・部屋描画・部屋壁衝突・部屋単位カリング（フェーズ5）
+                    #   ai.ts             汎用AI基盤: 知覚・ステアリング・参照ステートマシン（フェーズ5）
 src/scene/          # L2: シーン記述 API
                     #   temple.ts           神殿シーンの宣言（SceneSpec）とビルド入口
                     #   temple-constants.ts シーン定数（現行値の転記）
                     #   dynamic.ts          動的オブジェクトの宣言 API（DynSceneSpec、物理パラメータ含む）
                     #   demo.ts             デモシーン（神殿＋動的オブジェクト、フェーズ2/3の機能確認用）
+                    #   rooms.ts            部屋の宣言 API（RoomsSpec: 矩形・隣接・床タイル・壁、フェーズ5）
+                    #   ai.ts               エージェントの宣言 API（AgentSpec・AI_DEFAULTS、フェーズ5）
+                    #   rooms-demo.ts       4部屋＋AIデモシーン（フェーズ5の機能確認用）
 src/bake/           # L2.5: ホスト側ベイク（temple-bake.ts: Lumen HDR 評価＋ACES）
 src/pycompat.ts     # Python 意味論ヘルパー（銀行丸め・剰余・range 等）
 examples/temple/    # 神殿シーンの sb3 生成 CLI（dist/temple.sb3 を出力）
 examples/demo/      # デモの sb3 生成 CLI（dist/demo.sb3 を出力）
+examples/rooms/     # 部屋＋AIデモの sb3 生成 CLI（dist/rooms.sb3 を出力）
 tests/
   fixtures/python/  # 移植元の正: sb3_builder.py（原典コピー）＋最小シーン生成
   fixtures/         # TS 側の最小シーン生成（Python 版と同一シーン）
@@ -51,6 +67,7 @@ tests/
   temple.test.ts    # 神殿シーンの構造シグネチャ（4196ブロック/232変数/76リスト/15 proc）
   demo.test.ts      # デモシーンの構造シグネチャ（6411ブロック/345変数/102リスト/21 proc）＋SoA初期値
   physics.test.ts   # 物理パラメータ解決・静止高さ導出・神殿ビルドへのフェーズ3データ混入なしの確認
+  rooms.test.ts     # 部屋＋AIデモの構造シグネチャ・隣接行列・部屋幾何カウント・到達可能性の確認
 tools/compare.mjs   # Python 版と TS 版の project.json 構造一致を機械比較
 tools/validate.mjs  # sb3 構造検証（validate_sb3.py の TS 移植＋拡張チェック）
 tools/compare-temple.mjs # 生成 temple.sb3 と原本 hybrid sb3 の等価性比較

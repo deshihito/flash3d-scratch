@@ -48,6 +48,13 @@ export interface DynObjectSpec {
    * rest height, kinematic push displacement only).
    */
   physical?: boolean;
+  /**
+   * Room this object belongs to (phase 5, 1-based room id in the
+   * RoomsSpec passed alongside). Only used when a RoomsSpec is given:
+   * objects in inactive rooms are skipped by physics, player collision
+   * and rendering. Default 1.
+   */
+  room?: number;
 }
 
 /**
@@ -122,6 +129,8 @@ export interface DynObjectResolved {
   pushable: number;
   fluted: number;
   physical: number;
+  /** 1-based room id (phase 5; 1 when no RoomsSpec is in play). */
+  room: number;
 }
 
 export function resolveDynObject(o: DynObjectSpec): DynObjectResolved {
@@ -146,6 +155,7 @@ export function resolveDynObject(o: DynObjectSpec): DynObjectResolved {
     pushable: o.pushable ? 1 : 0,
     fluted: o.fluted ?? 0,
     physical: o.physical ? 1 : 0,
+    room: o.room ?? 1,
   };
 }
 

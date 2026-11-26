@@ -37,6 +37,7 @@
  * applied to rendering only (OBB is out of scope, design section 3.3).
  */
 import type { ProcHandle } from '../builder/index';
+import { dynRoomActiveExpr } from './rooms';
 import { dynHalfHeight, dynPlayerRadius, resolveDynObject, type DynSceneSpec } from '../scene/dynamic';
 
 export interface DynCtx {
@@ -46,6 +47,11 @@ export interface DynCtx {
   sun: [number, number, number];
   drawQuad: ProcHandle;
   smoothCyl: ProcHandle;
+  /**
+   * Phase 5: a RoomsSpec is present — dynRoom / rmActive exist and
+   * collision + rendering skip objects in inactive rooms.
+   */
+  rooms?: boolean;
 }
 
 const LIST_NAMES = [
@@ -373,11 +379,14 @@ export function defineDynProcs(ctx: DynCtx): DynProcs {
       ...loadRow(s, v('dynI')),
       // Vertical overlap: player body span camY-1.25..camY+0.35 (PROVISIONAL).
       // A held object (phase 3) is exempt: it rides in front of the camera.
+      // Phase 5: objects in inactive rooms do not collide either.
       s.if(s.land(s.eq(v('oHeld'), 0), s.land(
         s.lt(s.sub(v('camY'), 1.25), s.add(v('oY'), v('oHy'))),
         s.gt(s.add(v('camY'), 0.35), s.sub(v('oY'), v('oHy'))),
       )), [
-        s.ifElse(s.eq(v('oKind'), 3), boxPath, circlePath),
+        ...(ctx.rooms
+          ? [s.if(dynRoomActiveExpr(s, v('dynI')), [s.ifElse(s.eq(v('oKind'), 3), boxPath, circlePath)])]
+          : [s.ifElse(s.eq(v('oKind'), 3), boxPath, circlePath)]),
       ]),
       s.changeVar('dynI', 1),
     ]),
@@ -416,7 +425,7 @@ export function dynDrawDispatch(ctx: DynCtx, isMirror: boolean, procs: { sphere:
       ]),
     ]),
   ];
-  return [
+  const body: any[] = [
     s.setVar('dynIdx', s.sub(v('curObj'), 100)),
     ...loadRow(s, v('dynIdx')),
     ...blob,
@@ -430,4 +439,9 @@ export function dynDrawDispatch(ctx: DynCtx, isMirror: boolean, procs: { sphere:
       ], [s.callProc(procs.box)]),
     ]),
   ];
+  // Phase 5: skip rendering objects in inactive rooms entirely.
+  if (ctx.rooms) {
+    return [body[0], s.if(dynRoomActiveExpr(s, v('dynIdx')), body.slice(1))];
+  }
+  return body;
 }
