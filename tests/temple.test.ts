@@ -13,6 +13,13 @@
  * 4,250 blocks / 234 variables (added fillLOD + qStep registers);
  * lists (76) and procedures (15) are unchanged. Behavioral equivalence
  * is checked by the runtime pose-sweep harness (see phase-4 report).
+ *
+ * Phase 6 note: fill_quad_scan's scanline/edge intersections are
+ * walked incrementally (edgeWalkSetup/edgeWalkStep, registers
+ * eX0..3/eD0..3/eT0..3/eB0..3/eInv), bringing the signature to
+ * 4,402 blocks / 259 variables; lists (76) and procedures (15) are
+ * unchanged. Output is pixel-identical on the pose sweep (phase-6
+ * report).
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -47,8 +54,8 @@ test('temple project matches the original structural signature', () => {
   assert.deepEqual(proj.extensions, ['pen']);
   const sprite = proj.targets.find((t) => !t.isStage)!;
   const blockCount = Object.keys(sprite.blocks).length;
-  assert.equal(blockCount, 4346);
-  assert.equal(Object.keys(sprite.variables).length, 242);
+  assert.equal(blockCount, 4402);
+  assert.equal(Object.keys(sprite.variables).length, 259);
   assert.equal(Object.keys(sprite.lists).length, 76);
   const procs = Object.values(sprite.blocks).filter(
     (b) => (b as { opcode?: string }).opcode === 'procedures_prototype',
