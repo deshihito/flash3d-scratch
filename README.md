@@ -4,14 +4,23 @@
 
 土台は研究レポ **[deshihito/scratch-ue5-pen-research](https://github.com/deshihito/scratch-ue5-pen-research)** の **UE5 hybrid**（`ue5_lumen_hybrid.sb3`）—「ベイク済みラスタライザ＋解析的レイトレのヒーローオブジェクト＋平面反射の二重描画パス」という描画配分で、品質と実用速度を両立させた実証作である。Flash はその方式を引き継ぎ、固定シーンのデモから「シーンを差し替えられるエンジン」へ汎用化する。画質は現行水準を維持し、主眼は**最適化**と**不足コンポーネントの補完**に置く。
 
-## 現在の状態: フェーズ1（エンジンコア＋神殿シーン再現）
+## 現在の状態: フェーズ2（動的オブジェクト基盤＋衝突）
 
 | フェーズ | 内容 | 状態 |
 |---|---|---|
 | 0 | L0 sb3 ビルダー（`sb3_builder.py` の TS 移植）＋構造一致の検証 | ✅ 完了 |
 | 1 | L1 エンジンコア＋L2 シーン記述 API＋神殿シーン再現（MVP） | ✅ 完了（実機目視はユーザー確認待ち） |
-| 2–3 | 最適化（反射 LOD / RT 時間分割 / ペン色キャッシュ ほか） | 未着手 |
-| 4 | 不足コンポーネント補完（アニメーション、衝突、テクスチャ等） | 未着手 |
+| 2 | 動的オブジェクト基盤（SoA テーブル＋N個ソート統合＋実行時シェーディング描画）＋衝突（プレイヤー vs 動的オブジェクト、押す挙動） | ✅ 完了（実機確認はユーザー待ち） |
+| 3 | 掴む/運ぶ＋簡易物理（重力・接地・スリープ、衝撃量イベント） | 未着手 |
+| 4 | 最適化（反射 LOD / RT 時間分割 / ペン色キャッシュ ほか） | 未着手 |
+| 5–6 | マップ/ルーム＋AI 基盤、最適化（中優先群）＋仕上げ | 未着手 |
+
+フェーズ2の詳細: 動的オブジェクトは `src/scene/dynamic.ts`（L2 宣言: 球/円柱/箱、位置・yaw・マテリアル・pushable）で宣言し、`buildTempleProject(baked, dynSpec)` に渡すと `src/engine/dynamic.ts`（L1）が SoA リスト（dynKind/dynX/... 全15本）・描画プロシージャ（dyn_draw_sphere / dyn_draw_box）・衝突プロシージャ（dyn_collide）を追加で emit する。動的オブジェクトは既存の距離ソート（sort_5_objects を 5+N 件へ一般化、ID 101〜）に統合され、静的ベイクシーンと共存する。dynSpec を渡さない神殿ビルドはフェーズ1と完全に同一の出力のまま。
+
+```bash
+npm run build:demo    # dist/demo.sb3（神殿＋押せる球・箱＋固定円柱のデモ）
+npm run verify:demo   # 構造検証
+```
 
 ## 構成
 
@@ -22,17 +31,22 @@ src/builder/        # L0: sb3 ビルダー（sb3_builder.py の TS 移植）
                     #   zip.ts     決定的 ZIP ライタ（固定タイムスタンプ）
 src/engine/         # L1: エンジンコア（デバイスコード = Scratch へ emit される汎用部品）
                     #   hybrid-engine.ts  現行 hybrid の15プロシージャ＋メインループ
+                    #   dynamic.ts        動的オブジェクト（SoA管理・描画・衝突、フェーズ2）
 src/scene/          # L2: シーン記述 API
                     #   temple.ts           神殿シーンの宣言（SceneSpec）とビルド入口
                     #   temple-constants.ts シーン定数（現行値の転記）
+                    #   dynamic.ts          動的オブジェクトの宣言 API（DynSceneSpec）
+                    #   demo.ts             フェーズ2 デモシーン（神殿＋動的オブジェクト）
 src/bake/           # L2.5: ホスト側ベイク（temple-bake.ts: Lumen HDR 評価＋ACES）
 src/pycompat.ts     # Python 意味論ヘルパー（銀行丸め・剰余・range 等）
 examples/temple/    # 神殿シーンの sb3 生成 CLI（dist/temple.sb3 を出力）
+examples/demo/      # フェーズ2 デモの sb3 生成 CLI（dist/demo.sb3 を出力）
 tests/
   fixtures/python/  # 移植元の正: sb3_builder.py（原典コピー）＋最小シーン生成
   fixtures/         # TS 側の最小シーン生成（Python 版と同一シーン）
   builder.test.ts   # 単体テスト（MD5・ID 規約・mutation 書式・決定性）
   temple.test.ts    # 神殿シーンの構造シグネチャ（4196ブロック/232変数/76リスト/15 proc）
+  demo.test.ts      # デモシーンの構造シグネチャ（5293ブロック/272変数/91リスト/18 proc）＋SoA初期値
 tools/compare.mjs   # Python 版と TS 版の project.json 構造一致を機械比較
 tools/validate.mjs  # sb3 構造検証（validate_sb3.py の TS 移植＋拡張チェック）
 tools/compare-temple.mjs # 生成 temple.sb3 と原本 hybrid sb3 の等価性比較
