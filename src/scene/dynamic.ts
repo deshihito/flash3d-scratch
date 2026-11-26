@@ -38,10 +38,13 @@ export interface DynObjectSpec {
   /** Runtime-shaded material: albedo in 0..1 per channel. */
   material: { albedo: Vec3 };
   /**
-   * Metalness 0..1 for sphere shading (phase 6 look pass): 1 = the
-   * surface is shaded by tinted environment reflection (the RT hero
-   * spheres' recipe), 0 = diffuse body color with only a fresnel
-   * sheen of reflection on top. Default 1 (the demo spheres are
+   * Metalness 0..1 for sphere shading. Spheres are drawn by the
+   * kernel's shared RT sphere renderer (render_rt_hero, spMat = 2)
+   * in the hero spheres' own material parameter system; this value
+   * mixes the two hero presets: 1 = the gold preset (F0 = albedo,
+   * fresnel rise to white, specular ^16 tinted by F0), 0 = the
+   * obsidian preset (F0 = 0.16 gray, rise 0.72, body base =
+   * albedo * 0.14, specular ^24). Default 1 (the demo spheres are
    * metals: gold / copper). Ignored for boxes and cylinders.
    */
   metal?: number;

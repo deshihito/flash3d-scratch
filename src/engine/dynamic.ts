@@ -15,9 +15,10 @@
  *   painter sort (sort_5_objects generalized to 5+N entries), so dyn
  *   objects interleave with the temple's sorted objects by distance.
  * - Rendering: runtime shading only (no baked vertex colors):
- *   sphere -> dyn_draw_sphere (environment-reflection strips via
- *   trace_refl_fast, material-tinted; see the proc's own comment),
- *   cylinder ->
+ *   sphere -> the kernel's shared RT sphere renderer
+ *   (render_rt_hero / render_mirror_sphere) with spMat = 2, the
+ *   generic material in the hero spheres' own parameter system
+ *   (see dynDrawDispatch), cylinder ->
  *   the existing render_smooth_cylinder, box -> dyn_draw_box (6 faces
  *   built per frame, sun-dot gouraud through draw_quad_3d). Plus a blob
  *   contact shadow on the floor plane (generalizing the temple's
@@ -48,8 +49,10 @@ export interface DynCtx {
   sun: [number, number, number];
   drawQuad: ProcHandle;
   smoothCyl: ProcHandle;
-  /** trace_refl_fast — used by dyn_draw_sphere's environment-reflection strips. */
-  traceRefl: ProcHandle;
+  /** render_rt_hero — the kernel's per-pixel RT sphere renderer (shared with the hero spheres). */
+  rtHero: ProcHandle;
+  /** render_mirror_sphere — the kernel's mirror-pass sphere impostor. */
+  mirrorSphere: ProcHandle;
   /**
    * Phase 5: a RoomsSpec is present — dynRoom / rmActive exist and
    * collision + rendering skip objects in inactive rooms.
@@ -151,192 +154,12 @@ export function loadRow(s: any, idx: any): any[] {
   return pairs.map(([v, l]) => s.setVar(v, s.itemOf(l, idx)));
 }
 
-export interface DynProcs { sphere: ProcHandle; box: ProcHandle; collide: ProcHandle }
+export interface DynProcs { box: ProcHandle; collide: ProcHandle }
 
-/** Define dyn_draw_sphere / dyn_draw_box / dyn_collide. Call after draw_quad_3d exists. */
+/** Define dyn_draw_box / dyn_collide. Call after draw_quad_3d exists. */
 export function defineDynProcs(ctx: DynCtx): DynProcs {
   const { s, focal, sun } = ctx;
   const v = (n: string) => s.var(n);
-  const pack = (r: any, g: any, b: any) => s.add(s.mul(r, 65536), s.add(s.mul(g, 256), b));
-  const packA = (a: any, r: any, g: any, b: any) => s.add(s.mul(a, 16777216), pack(r, g, b));
-
-  // --- dyn_draw_sphere: environment-reflection strips.
-  // Look pass 2 (2026-11-26, user feedback on the rooms screenshot:
-  // the phase-4 specular pass still read as a pasted-on icon next to
-  // the RT hero spheres). The hero spheres blend in because they are
-  // shaded by ENVIRONMENT REFLECTION — the reflected ray is traced
-  // into the scene, so the lower half shows the floor checker, the
-  // upper half the sky gradient, and the sun appears as a glint.
-  // This proc now uses the same recipe at strip resolution: the disc
-  // is drawn as dN horizontal strips; per strip the sphere normal at
-  // the strip's center column is reconstructed (n = eta*up - w*fwd
-  // with w = sqrt(1-eta^2)), the reflection vector is traced with the
-  // kernel's trace_refl_fast (ro = surface point + 0.02n, spMat = 1
-  // so the trace tests the gold hero sphere), and the returned HDR
-  // environment color is material-tinted: for metal (oMetal = 1) the
-  // tinted reflection dominates with a fresnel rim boost; for
-  // dielectric (oMetal = 0) a sun-diffuse body color sits under a
-  // fresnel-weighted reflection. A Blinn specular from the same
-  // normal is added, then ACES + gamma exactly like render_rt_hero.
-  // Two small discs (specular core + white pinpoint at the
-  // sun-projected position, as in the previous pass) sharpen the
-  // glint, and a translucent rim shell softens the silhouette.
-  // Mirror pass: strips are placed at the mirrored screen offset but
-  // shaded from the same normal-space sample, so the floor reflection
-  // shows the same environment, flipped — the same approximation the
-  // hero spheres' mirror impostor makes.
-  // Documented approximations: the trace scene is the temple kernel's
-  // (planes, columns, crystal, hero spheres) — dynamic objects and
-  // room walls do not appear in dyn-sphere reflections, and each
-  // strip samples the center column only (the glint streaks
-  // vertically). Scratch registers: dT1 eta, dT2 w, dT3..dT5 normal,
-  // dT6..dT8 surface point, dT9..dT11 unit view, dT12 ndotv,
-  // dT13 ndotl, dT14 strip screen-y; dN strip count, dStep eta step,
-  // dI counter, dChord strip half-width px, dShade reflection weight.
-  // trace_refl_fast clobbers tmp*/ox*/hx*/ref*/tile* — none live here.
-  const mixTo = (tr: number, tg: number, tb: number, f: number): any[] => [
-    s.setVar('dT1', s.floor(s.add(v('oColR'), s.mul(s.sub(tr, v('oColR')), f)))),
-    s.setVar('dT2', s.floor(s.add(v('oColG'), s.mul(s.sub(tg, v('oColG')), f)))),
-    s.setVar('dT3', s.floor(s.add(v('oColB'), s.mul(s.sub(tb, v('oColB')), f)))),
-  ];
-  const disc = (ox: any, oy: any, size: any, color: any): any[] => [
-    s.gotoXy(ox, oy), s.penSetSize(size), s.penSetColor(color), s.penDown(), s.penUp(),
-  ];
-  const off = (k: number) => s.add(v('sx0'), s.mul(s.mul(v('sr'), k), v('dT5')));
-  const offY = (k: number) => s.add(v('sy0'), s.mul(s.mul(v('sr'), k), v('dT6')));
-  // One channel of the strip color: HDR env * albedo tint * reflection
-  // weight (dShade, includes metalness and the fresnel boost), plus
-  // diffuse body color scaled by (1 - metal), plus the Blinn specular
-  // tinted toward the albedo. Constants are working values.
-  const stripChan = (ref: string, col: string): any => {
-    const tint = s.mul(v(col), 1 / 255);
-    return s.add(
-      s.mul(s.mul(v(ref), tint), s.mul(v('dShade'), 1.25)),
-      s.add(
-        s.mul(s.mul(tint, s.add(0.22, s.mul(0.78, v('dT13')))), s.mul(0.85, s.sub(1, v('oMetal')))),
-        s.mul(s.mul(v('spec'), 4.5), s.mul(s.add(0.35, s.mul(0.65, tint)), s.add(0.35, s.mul(0.65, v('oMetal'))))),
-      ),
-    );
-  };
-  // ACES filmic + gamma, same chain as render_floor / render_rt_hero:
-  // pX = colX * 0.88, rational ACES, clamp to [0,1], sqrt gamma.
-  const tonemap = (col: string, p: string): any[] => [
-    s.setVar(p, s.mul(v(col), 0.88)),
-    s.setVar(p, s.div(s.mul(v(p), s.add(s.mul(2.51, v(p)), 0.03)), s.add(s.mul(v(p), s.add(s.mul(2.43, v(p)), 0.59)), 0.14))),
-    s.if(s.lt(v(p), 0), [s.setVar(p, 0)]),
-    s.if(s.gt(v(p), 1), [s.setVar(p, 1)]),
-  ];
-  const strip: any[] = [
-    // eta (band center, -1..1) and w = sqrt(1 - eta^2)
-    s.setVar('dT1', s.add(-1, s.mul(s.add(v('dI'), 0.5), v('dStep')))),
-    s.setVar('dT2', s.sqrt(s.sub(1, s.mul(v('dT1'), v('dT1'))))),
-    // normal at the strip's center column: n = eta*up - w*fwd
-    s.setVar('dT3', s.sub(s.mul(v('dT1'), v('upX')), s.mul(v('dT2'), v('fwdX')))),
-    s.setVar('dT4', s.sub(s.mul(v('dT1'), v('upY')), s.mul(v('dT2'), v('fwdY')))),
-    s.setVar('dT5', s.sub(s.mul(v('dT1'), v('upZ')), s.mul(v('dT2'), v('fwdZ')))),
-    // surface point P = O + R n
-    s.setVar('dT6', s.add(v('oX'), s.mul(v('oR'), v('dT3')))),
-    s.setVar('dT7', s.add(v('oY'), s.mul(v('oR'), v('dT4')))),
-    s.setVar('dT8', s.add(v('oZ'), s.mul(v('oR'), v('dT5')))),
-    // unit view V = normalize(cam - P)
-    s.setVar('dT9', s.sub(v('camX'), v('dT6'))),
-    s.setVar('dT10', s.sub(v('camY'), v('dT7'))),
-    s.setVar('dT11', s.sub(v('camZ'), v('dT8'))),
-    s.setVar('invL', s.div(1.0, s.sqrt(s.add(s.mul(v('dT9'), v('dT9')), s.add(s.mul(v('dT10'), v('dT10')), s.mul(v('dT11'), v('dT11'))))))),
-    s.setVar('dT9', s.mul(v('dT9'), v('invL'))),
-    s.setVar('dT10', s.mul(v('dT10'), v('invL'))),
-    s.setVar('dT11', s.mul(v('dT11'), v('invL'))),
-    // ndotv (guarded; the center column of the visible hemisphere is > 0)
-    s.setVar('dT12', s.add(s.mul(v('dT3'), v('dT9')), s.add(s.mul(v('dT4'), v('dT10')), s.mul(v('dT5'), v('dT11'))))),
-    s.if(s.lt(v('dT12'), 0.001), [s.setVar('dT12', 0.001)]),
-    // reflection ray: rd = 2 (n.V) n - V, ro = P + 0.02 n
-    s.setVar('rdX', s.sub(s.mul(s.mul(2, v('dT12')), v('dT3')), v('dT9'))),
-    s.setVar('rdY', s.sub(s.mul(s.mul(2, v('dT12')), v('dT4')), v('dT10'))),
-    s.setVar('rdZ', s.sub(s.mul(s.mul(2, v('dT12')), v('dT5')), v('dT11'))),
-    s.setVar('roX', s.add(v('dT6'), s.mul(v('dT3'), 0.02))),
-    s.setVar('roY', s.add(v('dT7'), s.mul(v('dT4'), 0.02))),
-    s.setVar('roZ', s.add(v('dT8'), s.mul(v('dT5'), 0.02))),
-    s.setVar('spMat', 1), s.setVar('hitKind', 0),
-    s.callProc(ctx.traceRefl),
-    // fresnel (1 - ndotv)^5 in the kernel's registers (free post-trace)
-    s.setVar('tmp', s.sub(1, v('dT12'))),
-    s.setVar('tmp2', s.mul(v('tmp'), v('tmp'))),
-    s.setVar('fres', s.mul(s.mul(v('tmp2'), v('tmp2')), v('tmp'))),
-    // Blinn specular: h = sun + V, spec = clamp(h.n / |h|)^8
-    s.setVar('hX', s.add(sun[0], v('dT9'))),
-    s.setVar('hY', s.add(sun[1], v('dT10'))),
-    s.setVar('hZ', s.add(sun[2], v('dT11'))),
-    s.setVar('ndoth', s.div(s.add(s.mul(v('hX'), v('dT3')), s.add(s.mul(v('hY'), v('dT4')), s.mul(v('hZ'), v('dT5')))), s.sqrt(s.add(s.mul(v('hX'), v('hX')), s.add(s.mul(v('hY'), v('hY')), s.mul(v('hZ'), v('hZ'))))))),
-    s.if(s.lt(v('ndoth'), 0), [s.setVar('ndoth', 0)]),
-    s.setVar('spec', s.mul(v('ndoth'), v('ndoth'))),
-    s.setVar('spec', s.mul(v('spec'), v('spec'))),
-    s.setVar('spec', s.mul(v('spec'), v('spec'))),
-    // ndotl for the diffuse body term
-    s.setVar('dT13', s.add(s.mul(v('dT3'), sun[0]), s.add(s.mul(v('dT4'), sun[1]), s.mul(v('dT5'), sun[2])))),
-    s.if(s.lt(v('dT13'), 0), [s.setVar('dT13', 0)]),
-    // reflection weight: metal * (0.8 + 0.45 fresnel)
-    s.setVar('dShade', s.mul(v('oMetal'), s.add(0.8, s.mul(0.45, v('fres'))))),
-    s.setVar('colR', stripChan('refR', 'oColR')),
-    s.setVar('colG', stripChan('refG', 'oColG')),
-    s.setVar('colB', stripChan('refB', 'oColB')),
-    ...tonemap('colR', 'pR'),
-    ...tonemap('colG', 'pG'),
-    ...tonemap('colB', 'pB'),
-    s.penSetColor(pack(
-      s.floor(s.mul(s.sqrt(v('pR')), 255)),
-      s.floor(s.mul(s.sqrt(v('pG')), 255)),
-      s.floor(s.mul(s.sqrt(v('pB')), 255)),
-    )),
-    // chord half-width at the band's outer edge (no corner spill)
-    s.setVar('tmp', s.add(v('dT1'), s.mul(v('dStep'), 0.5))),
-    s.if(s.lt(v('dT1'), 0), [s.setVar('tmp', s.sub(v('dT1'), s.mul(v('dStep'), 0.5)))]),
-    s.setVar('dChord', s.mul(v('sr'), s.sqrt(s.sub(1, s.mul(v('tmp'), v('tmp')))))),
-    // strip screen-y (mirrored in the floor-reflection pass)
-    s.ifElse(s.eq(v('mirrorFlag'), 1),
-      [s.setVar('dT14', s.sub(v('sy0'), s.mul(v('dT1'), v('sr'))))],
-      [s.setVar('dT14', s.add(v('sy0'), s.mul(v('dT1'), v('sr'))))]),
-    s.gotoXy(s.sub(v('sx0'), v('dChord')), v('dT14')),
-    s.penDown(),
-    s.gotoXy(s.add(v('sx0'), v('dChord')), v('dT14')),
-    s.penUp(),
-    s.changeVar('dI', 1),
-  ];
-  const sphere = s.defineProc('dyn_draw_sphere', undefined, true, [
-    ...camXform(s, v('oX'), v('oY'), v('oZ'), 'cx0', 'cy0', 'cz0'),
-    s.if(s.gt(v('cz0'), s.add(v('oR'), 0.2)), [
-      s.setVar('sx0', s.mul(s.div(v('cx0'), v('cz0')), focal)),
-      s.setVar('sy0', s.mul(s.div(v('cy0'), v('cz0')), focal)),
-      s.setVar('sr', s.mul(s.div(v('oR'), v('cz0')), focal)),
-      // strip count from screen size: ~2.5 strips per 10px of radius,
-      // clamped 5..15 (bounds the per-sphere trace count)
-      s.setVar('dN', s.floor(s.mul(v('sr'), 0.4))),
-      s.if(s.lt(v('dN'), 5), [s.setVar('dN', 5)]),
-      s.if(s.gt(v('dN'), 15), [s.setVar('dN', 15)]),
-      s.setVar('dStep', s.div(2, v('dN'))),
-      // rim shell: translucent sky tint, slightly oversized (softens
-      // the silhouette against the scene, as in the previous pass)
-      ...mixTo(168, 199, 235, 0.5),
-      ...disc(v('sx0'), v('sy0'), s.mul(v('sr'), 2.05), packA(46, v('dT1'), v('dT2'), v('dT3'))),
-      // environment-reflection strips (pen size = strip height * 1.3)
-      s.penSetSize(s.mul(s.div(s.mul(2, v('sr')), v('dN')), 1.3)),
-      s.setVar('dI', 0),
-      s.repeat(v('dN'), strip),
-      // Sun screen direction for the glint discs (render_sky
-      // convention; mirror pass negates SUN_Y).
-      s.ifElse(s.eq(v('mirrorFlag'), 1), [s.setVar('dT1', -sun[1])], [s.setVar('dT1', sun[1])]),
-      s.setVar('dT2', s.add(s.mul(sun[0], v('rgtX')), s.mul(sun[2], v('rgtZ')))),
-      s.setVar('dT3', s.add(s.mul(sun[0], v('upX')), s.add(s.mul(v('dT1'), v('upY')), s.mul(sun[2], v('upZ'))))),
-      s.setVar('dT4', s.sqrt(s.add(s.mul(v('dT2'), v('dT2')), s.mul(v('dT3'), v('dT3'))))),
-      s.ifElse(s.lt(v('dT4'), 0.08),
-        [s.setVar('dT5', 0.85), s.setVar('dT6', 0.52)],
-        [s.setVar('dT5', s.div(v('dT2'), v('dT4'))), s.setVar('dT6', s.div(v('dT3'), v('dT4')))]),
-      // specular core + pure-white pinpoint (crisp sun glint)
-      ...mixTo(255, 255, 255, 0.85),
-      ...disc(off(0.55), offY(0.55), s.mul(v('sr'), 0.42), packA(190, v('dT1'), v('dT2'), v('dT3'))),
-      ...disc(off(0.62), offY(0.62), s.mul(v('sr'), 0.16), pack(255, 255, 255)),
-    ]),
-  ]);
-
   // --- dyn_draw_box: 6 faces from center + yaw + half extents, sun-dot gouraud via draw_quad_3d.
   const ex = (su: number, sw: number) =>
     s.add(v('oX'), s.add(s.mul(su, v('dExx')), s.mul(sw, v('dEzx'))));
@@ -527,7 +350,7 @@ export function defineDynProcs(ctx: DynCtx): DynProcs {
     ]),
   ]);
 
-  return { sphere, box, collide };
+  return { box, collide };
 }
 
 /**
@@ -535,7 +358,7 @@ export function defineDynProcs(ctx: DynCtx): DynProcs {
  * Loads the row into o* registers, draws a blob contact shadow (normal
  * pass only), then dispatches to the shape renderer.
  */
-export function dynDrawDispatch(ctx: DynCtx, isMirror: boolean, procs: { sphere: ProcHandle; box: ProcHandle }): any[] {
+export function dynDrawDispatch(ctx: DynCtx, isMirror: boolean, procs: { box: ProcHandle }): any[] {
   const { s, focal } = ctx;
   const v = (n: string) => s.var(n);
   const blob: any[] = isMirror ? [] : [
@@ -560,11 +383,66 @@ export function dynDrawDispatch(ctx: DynCtx, isMirror: boolean, procs: { sphere:
       ]),
     ]),
   ];
+  // --- sphere: the kernel's shared RT sphere renderer (spMat = 2).
+  // Dynamic spheres are NOT drawn by a look-alike: they go through
+  // render_rt_hero (and render_mirror_sphere in the mirror pass),
+  // the exact per-pixel path that draws the gold / obsidian hero
+  // spheres, with the object's position / radius in spX/spY/spZ/spR.
+  // The material registers are filled from the object's tint
+  // (oColR/G/B, 0..255) and metalness (oMetal) by mixing the two hero
+  // presets in their own parameter system (see hybrid-engine.ts):
+  //   F0   = mix(0.16 gray, tint, metal)      (obsidian .. gold)
+  //   rise = mix(0.72, 1 - F0, metal)         (per channel)
+  //   base = tint * 0.14 * (1 - metal)        (obsidian body color;
+  //          (0.03, 0.035, 0.05) at its tint, 0 for metals)
+  //   spec scale = mix((8.5, 6.5, 4.5), 6.3 * F0, metal)
+  //          (gold's (6.2, 4.1, 1.4) ~= 6.3 * its F0 (0.94, 0.70, 0.22))
+  // and the specular exponent follows metalness (16 metal / 24
+  // dielectric) inside render_rt_hero's spMat = 2 branch.
+  const matChan = (col: string, f0: string, ris: string, bas: string, spc: string, obsSpc: number): any[] => [
+    s.setVar(f0, s.add(0.16, s.mul(s.sub(s.div(v(col), 255), 0.16), v('oMetal')))),
+    s.setVar(ris, s.add(0.72, s.mul(s.sub(s.sub(1, v(f0)), 0.72), v('oMetal')))),
+    s.setVar(bas, s.mul(s.mul(s.div(v(col), 255), 0.14), s.sub(1, v('oMetal')))),
+    s.setVar(spc, s.add(obsSpc, s.mul(s.sub(s.mul(6.3, v(f0)), obsSpc), v('oMetal')))),
+  ];
+  const sphereSetup: any[] = [
+    s.setVar('spX', v('oX')), s.setVar('spY', v('oY')), s.setVar('spZ', v('oZ')),
+    s.setVar('spR', v('oR')), s.setVar('spMat', 2),
+    s.setVar('mMetal', v('oMetal')),
+    s.setVar('mColR', v('oColR')), s.setVar('mColG', v('oColG')), s.setVar('mColB', v('oColB')),
+    ...matChan('oColR', 'mF0R', 'mRisR', 'mBasR', 'mSpcR', 8.5),
+    ...matChan('oColG', 'mF0G', 'mRisG', 'mBasG', 'mSpcG', 6.5),
+    ...matChan('oColB', 'mF0B', 'mRisB', 'mBasB', 'mSpcB', 4.5),
+  ];
+  const sphereCall: any[] = isMirror
+    ? [...sphereSetup, s.callProc(ctx.mirrorSphere)]
+    : [
+        ...sphereSetup,
+        // Resolution rides on the hero spheres' SPHERE_STEP mechanism
+        // (render_rt_hero reads SPHERE_STEP for its sample grid, pen
+        // size and the checkerboard split): pick the step from the
+        // projected radius so small / far spheres don't pay full
+        // resolution, and save / restore SPHERE_STEP around the call
+        // (dT13 = save slot) so hero spheres sorted after this object
+        // in the same frame keep the frame's step.
+        ...camXform(s, v('oX'), v('oY'), v('oZ'), 'cx0', 'cy0', 'cz0'),
+        s.setVar('dT13', v('SPHERE_STEP')),
+        s.if(s.gt(v('cz0'), 0.2), [
+          s.setVar('dT14', s.mul(s.div(v('oR'), v('cz0')), focal)), // projected radius, px
+          s.ifElse(s.gt(v('dT14'), 56), [s.setVar('SPHERE_STEP', 1)], [
+            s.ifElse(s.gt(v('dT14'), 28), [s.setVar('SPHERE_STEP', 2)], [
+              s.ifElse(s.gt(v('dT14'), 14), [s.setVar('SPHERE_STEP', 3)], [s.setVar('SPHERE_STEP', 4)]),
+            ]),
+          ]),
+        ]),
+        s.callProc(ctx.rtHero),
+        s.setVar('SPHERE_STEP', v('dT13')),
+      ];
   const body: any[] = [
     s.setVar('dynIdx', s.sub(v('curObj'), 100)),
     ...loadRow(s, v('dynIdx')),
     ...blob,
-    s.ifElse(s.eq(v('oKind'), 1), [s.callProc(procs.sphere)], [
+    s.ifElse(s.eq(v('oKind'), 1), sphereCall, [
       s.ifElse(s.eq(v('oKind'), 2), [
         s.setVar('cylX', v('oX')), s.setVar('cylZ', v('oZ')),
         s.setVar('cylY0', s.sub(v('oY'), s.div(v('oH'), 2))),
