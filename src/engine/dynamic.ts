@@ -25,10 +25,10 @@
  *   dynamic objects (sphere/cylinder as XZ circles, box as AABB),
  *   pushable objects are displaced and clamped to the scene bounds;
  *   if a pushed object cannot fully clear the player (bounds), the
- *   player is pushed out instead. Dynamic objects rest on the floor
- *   (dynY is the scene-declared rest height; gravity/velocity/impact
- *   are phase 3). Player vs static map stays the temple's existing
- *   camera clamp; dynamic objects use the same bounds + floor rest.
+ *   player is pushed out instead. Phase 3 (engine/physics.ts) adds
+ *   gravity/velocity/impact on top: physical objects additionally
+ *   receive a shove velocity here and held objects are exempt. Player
+ *   vs static map stays the temple's existing camera clamp.
  *
  * PROVISIONAL / REVERSIBLE values (engine working defaults, not spec):
  * player body vertical span (camY-1.25 .. camY+0.35) for the overlap
@@ -37,7 +37,7 @@
  * applied to rendering only (OBB is out of scope, design section 3.3).
  */
 import type { ProcHandle } from '../builder/index';
-import { dynPlayerRadius, resolveDynObject, type DynSceneSpec } from '../scene/dynamic';
+import { dynHalfHeight, dynPlayerRadius, resolveDynObject, type DynSceneSpec } from '../scene/dynamic';
 
 export interface DynCtx {
   s: any;
@@ -66,7 +66,7 @@ export function declareDynData(s: any, dyn: DynSceneSpec): void {
     dynR: objs.map((o) => o.radius),
     dynH: objs.map((o) => o.height),
     dynHx: objs.map((o) => o.halfExtents[0]),
-    dynHy: objs.map((o) => (o.kindCode === 1 ? o.radius : o.kindCode === 2 ? o.height / 2 : o.halfExtents[1])),
+    dynHy: objs.map((o) => dynHalfHeight(o)),
     dynHz: objs.map((o) => o.halfExtents[2]),
     dynColR: objs.map((o) => o.col255[0]),
     dynColG: objs.map((o) => o.col255[1]),
@@ -85,7 +85,7 @@ export function declareDynData(s: any, dyn: DynSceneSpec): void {
   s.var('dynMoved', 0);
   s.var('dynI', 0);
   s.var('dynIdx', 0);
-  for (const v of ['oKind', 'oX', 'oY', 'oZ', 'oYaw', 'oR', 'oH', 'oHx', 'oHy', 'oHz', 'oPush', 'oFlute', 'oColR', 'oColG', 'oColB']) s.var(v, 0);
+  for (const v of ['oKind', 'oX', 'oY', 'oZ', 'oYaw', 'oR', 'oH', 'oHx', 'oHy', 'oHz', 'oPush', 'oFlute', 'oColR', 'oColG', 'oColB', 'oPhys', 'oHeld', 'oSleep', 'oVX', 'oVY', 'oVZ']) s.var(v, 0);
   for (const v of ['dT1', 'dT2', 'dT3', 'dT4', 'dT5', 'dT6', 'dT7', 'dT8', 'dCos', 'dSin', 'dExx', 'dExz', 'dEzx', 'dEzz', 'dShade']) s.var(v, 0);
 }
 
@@ -122,13 +122,20 @@ function camXform(s: any, vx: any, vy: any, vz: any, ox: string, oy: string, oz:
   ];
 }
 
-/** Load the current object's row (register dynIdx) into the o* registers. */
-function loadRow(s: any, idx: any): any[] {
+/**
+ * Load the current object's row (register dynIdx) into the o* registers.
+ * Includes the phase-3 physics columns (dynPhys/dynHeld/dynSleep/dynV*);
+ * those lists are declared by declarePhysData (engine/physics.ts), which
+ * buildTempleProject calls before any proc emission.
+ */
+export function loadRow(s: any, idx: any): any[] {
   const pairs: Array<[string, string]> = [
     ['oKind', 'dynKind'], ['oX', 'dynX'], ['oY', 'dynY'], ['oZ', 'dynZ'],
     ['oYaw', 'dynYaw'], ['oR', 'dynR'], ['oH', 'dynH'], ['oHx', 'dynHx'],
     ['oHy', 'dynHy'], ['oHz', 'dynHz'], ['oColR', 'dynColR'], ['oColG', 'dynColG'],
     ['oColB', 'dynColB'], ['oPush', 'dynPush'], ['oFlute', 'dynFlute'],
+    ['oPhys', 'dynPhys'], ['oHeld', 'dynHeld'], ['oSleep', 'dynSleep'],
+    ['oVX', 'dynVX'], ['oVY', 'dynVY'], ['oVZ', 'dynVZ'],
   ];
   return pairs.map(([v, l]) => s.setVar(v, s.itemOf(l, idx)));
 }
@@ -229,6 +236,14 @@ export function defineDynProcs(ctx: DynCtx): DynProcs {
         ...clampTo(s.sub(v('oZ'), s.mul(v('dT6'), v('dT7'))), s.add(v('dynBdZ0'), v('oR')), s.sub(v('dynBdZ1'), v('oR')), 'dT8'),
         s.replaceItem('dynZ', v('dynI'), v('dT8')),
         s.setVar('dynMoved', 1),
+        // Phase 3: a physical object also receives a shove velocity (and
+        // wakes), so it keeps sliding under the physics step. dT5/dT6 are
+        // the unit vector object -> player, hence the negative sign.
+        s.if(s.eq(v('oPhys'), 1), [
+          s.replaceItem('dynSleep', v('dynI'), 0),
+          s.replaceItem('dynVX', v('dynI'), s.mul(v('dT5'), s.mul(v('physPushSpd'), -1))),
+          s.replaceItem('dynVZ', v('dynI'), s.mul(v('dT6'), s.mul(v('physPushSpd'), -1))),
+        ]),
         // If the object could not fully clear (bounds), push the player out instead.
         s.setVar('oX', s.itemOf('dynX', v('dynI'))),
         s.setVar('oZ', s.itemOf('dynZ', v('dynI'))),
@@ -263,6 +278,11 @@ export function defineDynProcs(ctx: DynCtx): DynProcs {
         ...clampTo(s.sub(v(oPos), s.mul(v('dT7'), v(pen))), s.add(v(bd0), v(half)), s.sub(v(bd1), v(half)), 'dT8'),
         s.replaceItem(list, v('dynI'), v('dT8')),
         s.setVar('dynMoved', 1),
+        // Phase 3: physical boxes also get a shove velocity along the axis.
+        s.if(s.eq(v('oPhys'), 1), [
+          s.replaceItem('dynSleep', v('dynI'), 0),
+          s.replaceItem(axis === 'x' ? 'dynVX' : 'dynVZ', v('dynI'), s.mul(v('dT7'), s.mul(v('physPushSpd'), -1))),
+        ]),
         s.setVar(oPos, s.itemOf(list, v('dynI'))),
         s.setVar(d, s.sub(v(cam), v(oPos))),
         s.if(s.lt(s.abs(v(d)), v(ext)), [
@@ -292,10 +312,11 @@ export function defineDynProcs(ctx: DynCtx): DynProcs {
     s.repeat(v('dynN'), [
       ...loadRow(s, v('dynI')),
       // Vertical overlap: player body span camY-1.25..camY+0.35 (PROVISIONAL).
-      s.if(s.land(
+      // A held object (phase 3) is exempt: it rides in front of the camera.
+      s.if(s.land(s.eq(v('oHeld'), 0), s.land(
         s.lt(s.sub(v('camY'), 1.25), s.add(v('oY'), v('oHy'))),
         s.gt(s.add(v('camY'), 0.35), s.sub(v('oY'), v('oHy'))),
-      ), [
+      )), [
         s.ifElse(s.eq(v('oKind'), 3), boxPath, circlePath),
       ]),
       s.changeVar('dynI', 1),

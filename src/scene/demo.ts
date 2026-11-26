@@ -1,19 +1,22 @@
 /**
- * demo.ts — L3 sample scene for phase 2: dynamic objects in the temple.
+ * demo.ts — L3 sample scene for phases 2+3: dynamic objects in the temple.
  *
- * The static baked temple scene (phase 1) plus three dynamic objects on
- * the open floor, exercising the phase-2 engine components:
- * - a pushable sphere (runtime-shaded dyn_draw_sphere),
- * - a pushable box with a yaw rotation (dyn_draw_box; collision is the
- *   AABB of its half extents),
- * - a fixed (non-pushable) cylinder rendered by render_smooth_cylinder.
- * Walk into the sphere or the box to push them; they slide on the floor
- * and stop at the scene bounds. The cylinder blocks the player instead.
+ * The static baked temple scene (phase 1) plus four dynamic objects on
+ * the open floor, exercising the engine components:
+ * - a physical sphere you can push, grab (hold F), carry and throw (G),
+ * - a physical box, same interactions,
+ * - a small physical sphere that starts in the air and falls at start,
+ *   landing with an impact event (watch the evLastImpact / evVal stage
+ *   monitors: the impact magnitude is shown and recorded),
+ * - a fixed (non-physical) cylinder that blocks the player.
+ *
+ * Controls (PROVISIONAL demo bindings; key assignment is game-side):
+ * WASD/QE move, arrows or drag look, F hold = grab/carry, release F =
+ * drop, G while holding = throw.
  *
  * This is an engine feature demo, not a game (design-repo-core.md
- * section 2: game logic lives in a future separate repo). Placement and
- * bounds values are demo choices, marked PROVISIONAL where they act as
- * engine defaults.
+ * section 2: game logic lives in a future separate repo). Placement,
+ * bounds and physics values are demo choices / provisional defaults.
  */
 import * as path from 'node:path';
 import { ProjectBuilder } from '../builder/index';
@@ -34,6 +37,7 @@ export const demoDynScene: DynSceneSpec = {
       radius: 0.35,
       material: { albedo: [0.85, 0.55, 0.20] },
       pushable: true,
+      physical: true,
     },
     {
       kind: 'box',
@@ -42,6 +46,7 @@ export const demoDynScene: DynSceneSpec = {
       yawDeg: 25,
       material: { albedo: [0.40, 0.52, 0.78] },
       pushable: true,
+      physical: true,
     },
     {
       kind: 'cylinder',
@@ -50,7 +55,17 @@ export const demoDynScene: DynSceneSpec = {
       height: 1.5,
       material: { albedo: [0.80, 0.78, 0.72] }, // (cylinder shading is the kernel's stone path)
       pushable: false,
-      fluted: 0,
+      physical: false,
+    },
+    {
+      // Starts airborne: falls ~2.7 units on the first frames and lands
+      // with an impact event (type 2) recorded in the ev* lists.
+      kind: 'sphere',
+      pos: [0.2, 1.7, -3.4],
+      radius: 0.22,
+      material: { albedo: [0.78, 0.30, 0.26] },
+      pushable: true,
+      physical: true,
     },
   ],
 };

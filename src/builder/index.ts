@@ -91,6 +91,8 @@ export class SpriteBuilder {
   readonly lists = new Map<string, [string, unknown[]]>(); // name -> [id, init]
   readonly blocks: Record<string, Block> = {};
   readonly costumes: Costume[] = [];
+  /** Stage monitors (variable/list watchers) for this sprite's data. */
+  readonly monitors: Record<string, unknown>[] = [];
   private _idCounter = 0;
   /** md5ext -> bytes, in insertion order (mirrors Python dict). */
   readonly extraAssets = new Map<string, Buffer>();
@@ -148,6 +150,27 @@ export class SpriteBuilder {
   private _ensureList(name: string): string {
     if (!this.lists.has(name)) this.lst(name, []);
     return this.lists.get(name)![0];
+  }
+
+  /** Show a variable watcher on the stage (Scratch monitor). */
+  showVar(name: string, x = 5, y = 5): void {
+    const vid = this._ensureVar(name);
+    this.monitors.push({
+      id: vid, mode: 'default', opcode: 'data_variable',
+      params: { VARIABLE: name }, spriteName: this.isStage ? null : this.name,
+      value: this.variables.get(name)![1], width: 0, height: 0, x, y,
+      visible: true, sliderMin: 0, sliderMax: 100, isDiscrete: true,
+    });
+  }
+
+  /** Show a list watcher on the stage (Scratch monitor). */
+  showList(name: string, x = 5, y = 5, width = 120, height = 90): void {
+    const lid = this._ensureList(name);
+    this.monitors.push({
+      id: lid, mode: 'list', opcode: 'data_listcontents',
+      params: { LIST: name }, spriteName: this.isStage ? null : this.name,
+      value: [], width, height, x, y, visible: true,
+    });
   }
 
   private _addBlock(
@@ -709,7 +732,7 @@ export class ProjectBuilder {
     const targets = [this.stage.toTargetDict(), ...this.sprites.map((s) => s.toTargetDict())];
     return {
       targets,
-      monitors: [],
+      monitors: [this.stage, ...this.sprites].flatMap((t) => t.monitors),
       extensions: ['pen'],
       meta: { semver: '3.0.0', vm: '0.2.0', agent: 'scratch-ue5-pen-compiler' },
     };

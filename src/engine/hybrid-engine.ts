@@ -18,6 +18,7 @@
  */
 import { ProjectBuilder } from '../builder/index';
 import { declareDynData, defineDynProcs, dynDrawDispatch, dynSortEntries, type DynCtx } from './dynamic';
+import { declarePhysData, definePhysProcs, dynLoopBody } from './physics';
 import type { DynSceneSpec } from '../scene/dynamic';
 import { enumerate, pyRound, range, sumArr } from '../pycompat';
 import {
@@ -145,6 +146,13 @@ export function buildTempleProject(baked: TempleBake, dyn?: DynSceneSpec | null)
   curObj = s.var("curObj");
   const dynCtx: DynCtx | null = DYN ? { s, dyn: DYN, focal: FOCAL, sun: [SUN_X, SUN_Y, SUN_Z], drawQuad: null as any, smoothCyl: null as any } : null;
   if (DYN) declareDynData(s, DYN);
+  if (DYN) {
+    declarePhysData(s, DYN);
+    // Phase-3 demo readouts: latest impact magnitude / object on stage.
+    s.showVar('evLastImpact', 8, 8);
+    s.showVar('evLastObj', 8, 32);
+    s.showList('evVal', 8, 60, 110, 84);
+  }
   function packQuadLists(prefix: any, quads: any, extra_cols: any = null): any {
     let ls: any, vi: any, q: any, name: any, fn: any;
     function r3(v: any): any {
@@ -226,6 +234,7 @@ export function buildTempleProject(baked: TempleBake, dyn?: DynSceneSpec | null)
 
   p_sort_objs = s.defineProc("sort_5_objects", undefined, true, [s.replaceItem(objId, 1, 1), s.replaceItem(objDist, 1, dist2Expr((-2.35), 0.5, 2.35)), s.replaceItem(objId, 2, 2), s.replaceItem(objDist, 2, dist2Expr(2.35, 0.5, 2.35)), s.replaceItem(objId, 3, 3), s.replaceItem(objDist, 3, dist2Expr(HERO_X, HERO_Y, HERO_Z)), s.replaceItem(objId, 4, 4), s.replaceItem(objDist, 4, dist2Expr(OBS_X, OBS_Y, OBS_Z)), s.replaceItem(objId, 5, 5), s.replaceItem(objDist, 5, dist2Expr(CRY_X, CRY_Y, CRY_Z)), ...(DYN ? dynSortEntries(dynCtx!) : []), s.setVar("i", 1), s.repeat(DYN ? 4 + DYN.objects.length : 4, [s.setVar("j", 1), s.repeat(DYN ? 4 + DYN.objects.length : 4, [s.if(s.lt(s.itemOf(objDist, j), s.itemOf(objDist, s.add(j, 1))), [s.setVar("tmp", s.itemOf(objDist, j)), s.replaceItem(objDist, j, s.itemOf(objDist, s.add(j, 1))), s.replaceItem(objDist, s.add(j, 1), tmp), s.setVar("tmp2", s.itemOf(objId, j)), s.replaceItem(objId, j, s.itemOf(objId, s.add(j, 1))), s.replaceItem(objId, s.add(j, 1), tmp2)]), s.changeVar("j", 1)]), s.changeVar("i", 1)])]);
   let p_dyn_sphere: any = null, p_dyn_box: any = null, p_dyn_collide: any = null;
+  let p_dyn_raycast: any = null, p_dyn_physics: any = null, p_dyn_grab: any = null;
   if (DYN) {
     dynCtx!.drawQuad = p_draw_quad;
     dynCtx!.smoothCyl = p_smooth_cyl;
@@ -233,6 +242,10 @@ export function buildTempleProject(baked: TempleBake, dyn?: DynSceneSpec | null)
     p_dyn_sphere = handles.sphere;
     p_dyn_box = handles.box;
     p_dyn_collide = handles.collide;
+    const physHandles = definePhysProcs(dynCtx!);
+    p_dyn_raycast = physHandles.raycast;
+    p_dyn_physics = physHandles.physics;
+    p_dyn_grab = physHandles.grab;
   }
 
   function renderSortedObjects(is_mirror: any): any {
@@ -242,7 +255,13 @@ export function buildTempleProject(baked: TempleBake, dyn?: DynSceneSpec | null)
   }
 
   p_render_frame = s.defineProc("render_frame", undefined, true, [s.setVar("t0", nowMs()), s.setVar("SPHERE_MS", 0), s.callProc(p_setup_cam), s.callProc(p_sort_objs), s.penClear(), s.if(s.eq(FLOOR_REFL, 1), [s.setVar("mirrorFlag", 1), s.callProc(p_render_sky), s.callProc(p_render_arch), ...renderSortedObjects(true)]), s.callProc(p_render_floor), s.setVar("mirrorFlag", 0), s.callProc(p_render_sky), s.callProc(p_render_arch), ...renderSortedObjects(false), s.callProc(p_god_rays), s.setVar("FRAME_MS", s.sub(nowMs(), t0)), s.setVar("RASTER_MS", s.sub(FRAME_MS, SPHERE_MS)), s.setVar("FPS", s.div(1000.0, s.add(FRAME_MS, 0.001)))]);
-  s.whenFlagClicked([s.hide(), s.setVar("DONE", 0), s.ifElse(s.eq(AUTO_STOP, 1), [s.repeat(BENCH_FRAMES, [s.callProc(p_render_frame)]), s.setVar("DONE", 1)], [s.setVar("needsRender", 1), s.setVar("lastFlickMs", nowMs()), s.forever([s.setVar("tmp3", 0), s.if(s.keyPressed("w"), [s.changeVar("camX", s.mul(fwdX, 0.12)), s.changeVar("camZ", s.mul(fwdZ, 0.12)), s.setVar("tmp3", 1)]), s.if(s.keyPressed("s"), [s.changeVar("camX", s.mul(fwdX, (-0.12))), s.changeVar("camZ", s.mul(fwdZ, (-0.12))), s.setVar("tmp3", 1)]), s.if(s.keyPressed("a"), [s.changeVar("camX", s.mul(rgtX, (-0.12))), s.changeVar("camZ", s.mul(rgtZ, (-0.12))), s.setVar("tmp3", 1)]), s.if(s.keyPressed("d"), [s.changeVar("camX", s.mul(rgtX, 0.12)), s.changeVar("camZ", s.mul(rgtZ, 0.12)), s.setVar("tmp3", 1)]), s.if(s.keyPressed("q"), [s.changeVar("camY", (-0.08)), s.setVar("tmp3", 1)]), s.if(s.keyPressed("e"), [s.changeVar("camY", 0.08), s.setVar("tmp3", 1)]), s.if(s.keyPressed("left arrow"), [s.changeVar("camYaw", (-2.8)), s.setVar("tmp3", 1)]), s.if(s.keyPressed("right arrow"), [s.changeVar("camYaw", 2.8), s.setVar("tmp3", 1)]), s.if(s.keyPressed("up arrow"), [s.changeVar("camPitch", 2.0), s.setVar("tmp3", 1)]), s.if(s.keyPressed("down arrow"), [s.changeVar("camPitch", (-2.0)), s.setVar("tmp3", 1)]), s.ifElse(s.mouseDown(), [s.ifElse(s.eq(wasDown, 0), [s.setVar("prevMX", s.mouseX()), s.setVar("prevMY", s.mouseY()), s.setVar("velYaw", 0), s.setVar("velPitch", 0), s.setVar("wasDown", 1), s.setVar("lastFlickMs", nowMs())], [s.setVar("dmx", s.sub(s.mouseX(), prevMX)), s.setVar("dmy", s.sub(s.mouseY(), prevMY)), s.setVar("prevMX", s.mouseX()), s.setVar("prevMY", s.mouseY()), s.if(s.lor(s.gt(s.abs(dmx), 0.2), s.gt(s.abs(dmy), 0.2)), [s.changeVar("camYaw", s.mul(dmx, 0.3)), s.changeVar("camPitch", s.mul(dmy, 0.24)), s.setVar("velYaw", s.add(s.mul(velYaw, 0.35), s.mul(dmx, 0.22))), s.setVar("velPitch", s.add(s.mul(velPitch, 0.35), s.mul(dmy, 0.16))), ...clampR(s, "velYaw", (-12.0), 12.0), ...clampR(s, "velPitch", (-9.0), 9.0), s.setVar("lastFlickMs", nowMs()), s.setVar("tmp3", 1)])])], [s.setVar("wasDown", 0), s.ifElse(s.lor(s.gt(s.abs(velYaw), 0.12), s.gt(s.abs(velPitch), 0.12)), [s.if(s.gt(s.sub(nowMs(), s.var("lastFlickMs")), 15.0), [s.setVar("lastFlickMs", nowMs()), s.changeVar("camYaw", velYaw), s.changeVar("camPitch", velPitch), s.setVar("velYaw", s.mul(velYaw, 0.85)), s.setVar("velPitch", s.mul(velPitch, 0.85)), s.setVar("tmp3", 1)])], [s.setVar("velYaw", 0), s.setVar("velPitch", 0)])]), s.if(s.keyPressed("0"), [s.setVar("AUTO_STEP", 1), s.setVar("needsRender", 1)]), s.if(s.keyPressed("1"), [s.setVar("AUTO_STEP", 0), s.setVar("SPHERE_STEP", 2), s.setVar("needsRender", 1)]), s.if(s.keyPressed("2"), [s.setVar("AUTO_STEP", 0), s.setVar("SPHERE_STEP", 1), s.setVar("needsRender", 1)]), s.if(s.keyPressed("3"), [s.setVar("FLOOR_REFL", 1), s.setVar("needsRender", 1)]), s.if(s.keyPressed("4"), [s.setVar("FLOOR_REFL", 0), s.setVar("needsRender", 1)]), ...clampR(s, "camX", (-3.15), 4.5), ...clampR(s, "camY", (-0.85), 2.55), ...clampR(s, "camZ", (-6.5), 3.85), ...clampR(s, "camPitch", (-48), 42), ...(DYN ? [s.callProc(p_dyn_collide), s.if(s.eq(s.var("dynMoved"), 1), [s.setVar("tmp3", 1)])] : []), s.ifElse(s.eq(tmp3, 1), [s.if(s.eq(AUTO_STEP, 1), [s.setVar("SPHERE_STEP", 2)]), s.callProc(p_render_frame), s.setVar("needsRender", 1)], [s.if(s.eq(s.var("needsRender"), 1), [s.if(s.eq(AUTO_STEP, 1), [s.setVar("SPHERE_STEP", 1)]), s.callProc(p_render_frame), s.setVar("needsRender", 0)])])])])]);
+  // Phase 3: DYN builds run the intent/PlayerState main loop
+  // (engine/physics.ts dynLoopBody) instead of the phase-1 direct loop.
+  const dynLoopCtx = DYN ? {
+    s, fwdX, fwdZ, rgtX, rgtZ, velYaw, velPitch, nowMs, clampR,
+    collide: p_dyn_collide, physics: p_dyn_physics, grab: p_dyn_grab, renderFrame: p_render_frame,
+  } : null;
+  s.whenFlagClicked([s.hide(), s.setVar("DONE", 0), s.ifElse(s.eq(AUTO_STOP, 1), [s.repeat(BENCH_FRAMES, [s.callProc(p_render_frame)]), s.setVar("DONE", 1)], [s.setVar("needsRender", 1), s.setVar("lastFlickMs", nowMs()), s.forever(DYN ? dynLoopBody(dynLoopCtx!) : [s.setVar("tmp3", 0), s.if(s.keyPressed("w"), [s.changeVar("camX", s.mul(fwdX, 0.12)), s.changeVar("camZ", s.mul(fwdZ, 0.12)), s.setVar("tmp3", 1)]), s.if(s.keyPressed("s"), [s.changeVar("camX", s.mul(fwdX, (-0.12))), s.changeVar("camZ", s.mul(fwdZ, (-0.12))), s.setVar("tmp3", 1)]), s.if(s.keyPressed("a"), [s.changeVar("camX", s.mul(rgtX, (-0.12))), s.changeVar("camZ", s.mul(rgtZ, (-0.12))), s.setVar("tmp3", 1)]), s.if(s.keyPressed("d"), [s.changeVar("camX", s.mul(rgtX, 0.12)), s.changeVar("camZ", s.mul(rgtZ, 0.12)), s.setVar("tmp3", 1)]), s.if(s.keyPressed("q"), [s.changeVar("camY", (-0.08)), s.setVar("tmp3", 1)]), s.if(s.keyPressed("e"), [s.changeVar("camY", 0.08), s.setVar("tmp3", 1)]), s.if(s.keyPressed("left arrow"), [s.changeVar("camYaw", (-2.8)), s.setVar("tmp3", 1)]), s.if(s.keyPressed("right arrow"), [s.changeVar("camYaw", 2.8), s.setVar("tmp3", 1)]), s.if(s.keyPressed("up arrow"), [s.changeVar("camPitch", 2.0), s.setVar("tmp3", 1)]), s.if(s.keyPressed("down arrow"), [s.changeVar("camPitch", (-2.0)), s.setVar("tmp3", 1)]), s.ifElse(s.mouseDown(), [s.ifElse(s.eq(wasDown, 0), [s.setVar("prevMX", s.mouseX()), s.setVar("prevMY", s.mouseY()), s.setVar("velYaw", 0), s.setVar("velPitch", 0), s.setVar("wasDown", 1), s.setVar("lastFlickMs", nowMs())], [s.setVar("dmx", s.sub(s.mouseX(), prevMX)), s.setVar("dmy", s.sub(s.mouseY(), prevMY)), s.setVar("prevMX", s.mouseX()), s.setVar("prevMY", s.mouseY()), s.if(s.lor(s.gt(s.abs(dmx), 0.2), s.gt(s.abs(dmy), 0.2)), [s.changeVar("camYaw", s.mul(dmx, 0.3)), s.changeVar("camPitch", s.mul(dmy, 0.24)), s.setVar("velYaw", s.add(s.mul(velYaw, 0.35), s.mul(dmx, 0.22))), s.setVar("velPitch", s.add(s.mul(velPitch, 0.35), s.mul(dmy, 0.16))), ...clampR(s, "velYaw", (-12.0), 12.0), ...clampR(s, "velPitch", (-9.0), 9.0), s.setVar("lastFlickMs", nowMs()), s.setVar("tmp3", 1)])])], [s.setVar("wasDown", 0), s.ifElse(s.lor(s.gt(s.abs(velYaw), 0.12), s.gt(s.abs(velPitch), 0.12)), [s.if(s.gt(s.sub(nowMs(), s.var("lastFlickMs")), 15.0), [s.setVar("lastFlickMs", nowMs()), s.changeVar("camYaw", velYaw), s.changeVar("camPitch", velPitch), s.setVar("velYaw", s.mul(velYaw, 0.85)), s.setVar("velPitch", s.mul(velPitch, 0.85)), s.setVar("tmp3", 1)])], [s.setVar("velYaw", 0), s.setVar("velPitch", 0)])]), s.if(s.keyPressed("0"), [s.setVar("AUTO_STEP", 1), s.setVar("needsRender", 1)]), s.if(s.keyPressed("1"), [s.setVar("AUTO_STEP", 0), s.setVar("SPHERE_STEP", 2), s.setVar("needsRender", 1)]), s.if(s.keyPressed("2"), [s.setVar("AUTO_STEP", 0), s.setVar("SPHERE_STEP", 1), s.setVar("needsRender", 1)]), s.if(s.keyPressed("3"), [s.setVar("FLOOR_REFL", 1), s.setVar("needsRender", 1)]), s.if(s.keyPressed("4"), [s.setVar("FLOOR_REFL", 0), s.setVar("needsRender", 1)]), ...clampR(s, "camX", (-3.15), 4.5), ...clampR(s, "camY", (-0.85), 2.55), ...clampR(s, "camZ", (-6.5), 3.85), ...clampR(s, "camPitch", (-48), 42), ...(DYN ? [s.callProc(p_dyn_collide), s.if(s.eq(s.var("dynMoved"), 1), [s.setVar("tmp3", 1)])] : []), s.ifElse(s.eq(tmp3, 1), [s.if(s.eq(AUTO_STEP, 1), [s.setVar("SPHERE_STEP", 2)]), s.callProc(p_render_frame), s.setVar("needsRender", 1)], [s.if(s.eq(s.var("needsRender"), 1), [s.if(s.eq(AUTO_STEP, 1), [s.setVar("SPHERE_STEP", 1)]), s.callProc(p_render_frame), s.setVar("needsRender", 0)])])])])]);
   return pb;
 }
 
