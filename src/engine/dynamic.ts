@@ -391,7 +391,7 @@ export function defineDynProcs(ctx: DynCtx): DynProcs {
     s.setVar('dCos', s.cos(v('oYaw'))), s.setVar('dSin', s.sin(v('oYaw'))),
     s.setVar('dExx', s.mul(v('dCos'), v('oHx'))), s.setVar('dExz', s.mul(s.mul(v('dSin'), -1), v('oHx'))),
     s.setVar('dEzx', s.mul(v('dSin'), v('oHz'))), s.setVar('dEzz', s.mul(v('dCos'), v('oHz'))),
-    s.penSetSize(2.4), s.setVar('quadMode', 2), s.setVar('cullFlag', 1), s.setVar('fillLOD', 0),
+    s.penSetSize(s.mul(1.2, v('adaptStep'))), s.setVar('quadMode', 2), s.setVar('cullFlag', 1), s.setVar('fillLOD', 0),
     // Half vector for the per-face specular: view (center -> camera,
     // dT5..dT7 scratch) normalized, plus the sun; h kept in dT2..dT4
     // with |h| in dT8 (guarded against the degenerate sun = -view case).

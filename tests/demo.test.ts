@@ -38,8 +38,8 @@ function demoProject(): { proj: Proj; sprite: Proj['targets'][number] } {
 test('demo project has the phase-3 structural signature', () => {
   const { proj, sprite } = demoProject();
   assert.deepEqual(proj.extensions, ['pen']);
-  assert.equal(Object.keys(sprite.blocks).length, 7298);
-  assert.equal(Object.keys(sprite.variables).length, 385);
+  assert.equal(Object.keys(sprite.blocks).length, 7313);
+  assert.equal(Object.keys(sprite.variables).length, 387);
   assert.equal(Object.keys(sprite.lists).length, 103);
   const procs = Object.values(sprite.blocks)
     .filter((b) => b.opcode === 'procedures_prototype')

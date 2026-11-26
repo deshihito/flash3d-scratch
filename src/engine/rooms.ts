@@ -170,7 +170,7 @@ export function defineRoomProcs(ctx: DynCtx): RoomProcs {
     // Floor tiles lie on the mirror plane itself, so they are drawn in
     // the normal pass only (the temple floor does the same).
     s.if(s.eq(v('mirrorFlag'), 0), [
-      s.penSetSize(2), s.setVar('quadMode', 1), s.setVar('cullFlag', 0),
+      s.penSetSize(v('adaptStep')), s.setVar('quadMode', 1), s.setVar('cullFlag', 0),
       s.setVar('rmI', 1),
       s.repeat(v('rmFlN'), [
         s.if(roomActiveExpr(s, s.itemOf('rmFlRoom', v('rmI'))), [
@@ -185,7 +185,7 @@ export function defineRoomProcs(ctx: DynCtx): RoomProcs {
     // mirror pass (the render_arch LOD convention).
     s.ifElse(s.eq(v('mirrorFlag'), 1),
       [s.penSetSize(5.2), s.setVar('quadMode', 1), s.setVar('fillLOD', 1)],
-      [s.penSetSize(2.6), s.setVar('quadMode', 2), s.setVar('fillLOD', 0)]),
+      [s.penSetSize(s.mul(1.3, v('adaptStep'))), s.setVar('quadMode', 2), s.setVar('fillLOD', 0)]),
     s.setVar('cullFlag', 1),
     s.setVar('rmI', 1),
     s.repeat(v('rmWN'), [

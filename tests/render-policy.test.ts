@@ -87,4 +87,28 @@ for (const [name, build] of [['temple', buildTemple], ['demo', buildDemo]] as co
     const cbVar = Object.values(sprite.variables).find((v) => v[0] === 'cbOn')!;
     assert.equal(cbVar[1], 0, 'cbOn must start at 0 (full quality)');
   });
+
+  test(`${name}: adaptive resolution mechanism is wired but off by default`, () => {
+    const sprite = spriteOf(build());
+    const adaptRes = Object.values(sprite.variables).find((v) => v[0] === 'ADAPT_RES');
+    assert.ok(adaptRes, 'ADAPT_RES register missing');
+    assert.equal(adaptRes[1], 0, 'ADAPT_RES must default to 0 (mechanism off; target frame time is undecided)');
+    const adaptStep = Object.values(sprite.variables).find((v) => v[0] === 'adaptStep');
+    assert.ok(adaptStep, 'adaptStep register missing');
+    assert.equal(adaptStep[1], 2, 'adaptStep must default to 2 (pre-phase-6 row step)');
+    // The FRAME_MS feedback adjusts adaptStep in both directions.
+    const changes = Object.values(sprite.blocks).filter(
+      (b) => b.opcode === 'data_changevariableby' && b.fields?.VARIABLE?.[0] === 'adaptStep',
+    );
+    assert.ok(changes.length >= 2, 'feedback must raise and lower adaptStep');
+    // fill_quad_scan must read adaptStep as its row step (a variable
+    // input on some block), not a hard-coded 2.
+    const readsAdapt = Object.values(sprite.blocks).some((b) =>
+      Object.values(b.inputs ?? {}).some(
+        (inp) =>
+          Array.isArray(inp) && Array.isArray(inp[1]) && inp[1][0] === 12 && inp[1][1] === 'adaptStep',
+      ),
+    );
+    assert.ok(readsAdapt, 'no block reads adaptStep');
+  });
 }
