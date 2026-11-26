@@ -4,7 +4,7 @@
  *
  * Asserts the demo scene (temple static scene + DynSceneSpec) builds
  * with the phase-3 structural signature: the 15 temple procedures plus
- * dyn_draw_sphere / dyn_draw_box / dyn_collide / dyn_raycast /
+ * dyn_draw_box / dyn_collide / dyn_raycast /
  * dyn_physics / dyn_grab, the dyn SoA table (incl. phase-3 physics
  * columns) with the declared initial values, impact-event store empty
  * at start, debug stage monitors hidden by default and available via
@@ -38,14 +38,14 @@ function demoProject(): { proj: Proj; sprite: Proj['targets'][number] } {
 test('demo project has the phase-3 structural signature', () => {
   const { proj, sprite } = demoProject();
   assert.deepEqual(proj.extensions, ['pen']);
-  assert.equal(Object.keys(sprite.blocks).length, 7313);
-  assert.equal(Object.keys(sprite.variables).length, 387);
+  assert.equal(Object.keys(sprite.blocks).length, 7202);
+  assert.equal(Object.keys(sprite.variables).length, 403);
   assert.equal(Object.keys(sprite.lists).length, 103);
   const procs = Object.values(sprite.blocks)
     .filter((b) => b.opcode === 'procedures_prototype')
     .map((b) => b.mutation?.proccode);
-  assert.equal(procs.length, 21);
-  for (const p of ['dyn_draw_sphere', 'dyn_draw_box', 'dyn_collide', 'dyn_raycast', 'dyn_physics', 'dyn_grab', 'sort_5_objects', 'render_frame', 'draw_quad_3d', 'render_smooth_cylinder']) {
+  assert.equal(procs.length, 20);
+  for (const p of ['dyn_draw_box', 'dyn_collide', 'dyn_raycast', 'dyn_physics', 'dyn_grab', 'sort_5_objects', 'render_frame', 'draw_quad_3d', 'render_smooth_cylinder']) {
     assert.ok(procs.includes(p), `missing proc ${p}`);
   }
   const ids = new Set(Object.keys(sprite.blocks));
@@ -53,6 +53,27 @@ test('demo project has the phase-3 structural signature', () => {
     if (b.next) assert.ok(ids.has(b.next), `dangling next ${b.next}`);
     if (b.parent) assert.ok(ids.has(b.parent), `dangling parent ${b.parent}`);
   }
+});
+
+test('dynamic spheres render through the shared RT hero path (spMat = 2)', () => {
+  const { sprite } = demoProject();
+  // The strip-approximation proc is gone: dynamic spheres go through
+  // render_rt_hero / render_mirror_sphere like the hero spheres.
+  const procs = Object.values(sprite.blocks)
+    .filter((b) => b.opcode === 'procedures_prototype')
+    .map((b) => b.mutation?.proccode);
+  assert.ok(!procs.includes('dyn_draw_sphere'), 'dyn_draw_sphere must be gone');
+  // The dispatch assigns the generic material id spMat = 2 (literal)
+  // before calling the shared renderers.
+  const spMatId = Object.entries(sprite.variables).find(([, v]) => v[0] === 'spMat')?.[0];
+  assert.ok(spMatId, 'spMat variable exists');
+  const sets2 = Object.values(sprite.blocks).filter((b) => {
+    const blk = b as { fields?: { VARIABLE?: [string, string] }; inputs?: { VALUE?: [number, [number, string]] } };
+    return b.opcode === 'data_setvariableto'
+      && blk.fields?.VARIABLE?.[1] === spMatId
+      && blk.inputs?.VALUE?.[1]?.[1] === '2';
+  });
+  assert.ok(sets2.length >= 1, 'a literal spMat = 2 assignment exists in the demo build');
 });
 
 test('dyn SoA table carries the declared scene, resolved', () => {

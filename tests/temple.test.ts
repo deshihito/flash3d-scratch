@@ -36,6 +36,25 @@ test('bake produces the original quad counts and finite values', () => {
   walk(baked);
 });
 
+test('temple build never uses the generic material (no spMat = 2)', () => {
+  const pb = buildTemple();
+  const proj = pb.buildProject() as {
+    targets: Array<{
+      isStage: boolean;
+      blocks: Record<string, { opcode?: string; fields?: { VARIABLE?: [string, string] }; inputs?: { VALUE?: [number, [number, string]] } }>;
+      variables: Record<string, [string, unknown]>;
+    }>;
+  };
+  const sprite = proj.targets.find((t) => !t.isStage)!;
+  const spMatId = Object.entries(sprite.variables).find(([, v]) => v[0] === 'spMat')?.[0];
+  assert.ok(spMatId, 'spMat variable exists');
+  const sets2 = Object.values(sprite.blocks).filter((b) =>
+    b.opcode === 'data_setvariableto'
+    && b.fields?.VARIABLE?.[1] === spMatId
+    && b.inputs?.VALUE?.[1]?.[1] === '2');
+  assert.equal(sets2.length, 0, 'temple must not assign spMat = 2');
+});
+
 test('bake is deterministic', () => {
   assert.deepEqual(bakeCinemaScene(), bakeCinemaScene());
 });
@@ -54,8 +73,11 @@ test('temple project matches the original structural signature', () => {
   assert.deepEqual(proj.extensions, ['pen']);
   const sprite = proj.targets.find((t) => !t.isStage)!;
   const blockCount = Object.keys(sprite.blocks).length;
-  assert.equal(blockCount, 4427);
-  assert.equal(Object.keys(sprite.variables).length, 263);
+  // Block/var counts grew with the generic-material generalization
+  // of render_rt_hero / render_mirror_sphere (spMat = 2 registers):
+  // the temple's rendered pixels are unchanged (grid-verified).
+  assert.equal(blockCount, 4584);
+  assert.equal(Object.keys(sprite.variables).length, 279);
   assert.equal(Object.keys(sprite.lists).length, 76);
   const procs = Object.values(sprite.blocks).filter(
     (b) => (b as { opcode?: string }).opcode === 'procedures_prototype',

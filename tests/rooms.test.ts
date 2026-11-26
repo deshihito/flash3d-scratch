@@ -45,9 +45,9 @@ test('rooms project has the phase-5 procedures and pen-only extensions', () => {
   const procs = Object.values(sprite.blocks)
     .filter((b) => b.opcode === 'procedures_prototype')
     .map((b) => b.mutation?.proccode);
-  // 21 phase-3 demo procs + room_update / room_collide / render_rooms
+  // 20 phase-3 demo procs + room_update / room_collide / render_rooms
   // + ai_perceive / ai_steer / ai_update.
-  assert.equal(procs.length, 27);
+  assert.equal(procs.length, 26);
   for (const p of ['room_update', 'room_collide', 'render_rooms', 'ai_perceive', 'ai_steer', 'ai_update']) {
     assert.ok(procs.includes(p), `missing proc ${p}`);
   }
